@@ -222,5 +222,5 @@ jobs:
               --base $BASE_BRANCH \
               --head $(git branch --show-current) \
               --title "$COMMIT_MESSAGE" \
-              --body "Created by the *${{ github.job }}* job."
+              --body "Created by the *${{ github.job }}* job: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           fi
