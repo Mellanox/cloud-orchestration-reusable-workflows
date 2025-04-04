@@ -112,11 +112,20 @@ jobs:
           ref: ${{ needs.validate-pr-with-updated-version-open.outputs.head-ref-name }}
       - name: Verify version changes in PR
         env:
+          GH_TOKEN: ${{ github.token }}
           DOCKER_TAG: ${{ needs.call-reusable-ci-fork-workflow.outputs.docker-tag }}
-          # TODO make react on public and internal registries if needed
+          PR_NUMBER: ${{ needs.validate-pr-with-updated-version-open.outputs.pr-number }}
           DOCKER_REGISTRY: ghcr.io/mellanox
           RELEASE_FILE: hack/release.yaml
         run: |
+          echo "Validating that PR description contains the current workflow run url..."
+          CURRENT_RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          PR_BODY=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json body -q '.body')
+          if ! echo "$PR_BODY" | grep -Fq "$CURRENT_RUN_URL"; then
+            echo "Error: PR body does not contain the current workflow run URL ($CURRENT_RUN_URL)" >&2
+            exit 1
+          fi
+
           make check-release-build
 
           echo "Validating changes in release.yaml..."
