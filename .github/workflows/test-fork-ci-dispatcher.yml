@@ -2,8 +2,6 @@ name: Test Fork CI workflow
 
 on:
   pull_request:
-    branches:
-      - main
   push:
     branches:
       - main
@@ -15,20 +13,20 @@ jobs:
       matrix:
         configurations: [
           { "ref_name": "network-operator-11.1-beta.1", "ref_type": "tag" },
-          { "ref_name": "network-operator-22.2-rc.1", "ref_type": "tag" },
-          { "ref_name": "network-operator-33.3.1", "ref_type": "tag" },
-          { "ref_name": "network-operator-44.4.x", "ref_type": "branch" }
+#          { "ref_name": "network-operator-22.2-rc.1", "ref_type": "tag" },
+#          { "ref_name": "network-operator-33.3.1", "ref_type": "tag" },
+#          { "ref_name": "network-operator-44.4.x", "ref_type": "branch" }
         ]
     steps:
       - name: Dispatch and wait for testing workflow
         id: return_dispatch
         uses: convictional/trigger-workflow-and-wait@v1.6.5
         with:
-          github_token: ${{ secrets.GH_TOKEN_NVIDIA_CI_CD }}
-          ref: refs/heads/testing-main # branch of cloud-orchestration-reusable-workflows-testing to use
-          repo: cloud-orchestration-reusable-workflows-testing
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ github.head_ref || github.ref }}
+          repo: cloud-orchestration-reusable-workflows
           owner: ${{ github.repository_owner }}
           wait_workflow: true
-          wait_interval: 15
-          workflow_file_name: test-fork-ci.yml
+          wait_interval: 30
+          workflow_file_name: test-fork-ci-callee.yml
           client_payload: ${{ toJSON(matrix.configurations) }}

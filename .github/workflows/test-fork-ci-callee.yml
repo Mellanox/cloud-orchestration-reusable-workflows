@@ -1,0 +1,211 @@
+name: Test Fork CI
+
+permissions: write-all
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref_name:
+        description: "Branch or tag to use (e.g., network-operator-test)"
+        required: true
+      ref_type:
+        description: "Type of ref to use (tag or branch)"
+        required: true
+      distinct_id:
+        description: "Unique identifier for the run"
+
+jobs:
+  # this job is needed for the parent job to de able to detect workflow run id and later its status
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: echo distinct ID ${{ inputs.distinct_id }}
+        run: echo ${{ inputs.distinct_id }}
+
+  create-test-environment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - if: inputs.ref_type == 'tag'
+        name: Create release tag and branch
+        run: |
+          git tag ${{ inputs.ref_name }}
+          git push origin ${{ inputs.ref_name }} -f
+          # We need to cut the release branch from the 'network-operator' master branch
+          git fetch origin master --depth 1
+          git checkout origin/master
+          release_branch=$(echo ${{ inputs.ref_name }} | sed -E 's/^network-operator-([0-9]+\.[0-9]+).+/v\1.x/')  # example: transforms "network-operator-25.1.0-beta.2" to "v25.1.x"
+          git checkout -b $release_branch
+          git push origin $release_branch -f
+          echo BRANCH=$release_branch | tee -a $GITHUB_ENV
+          echo TAG=${{ inputs.ref_name }} | tee -a $GITHUB_ENV
+      - if: inputs.ref_type == 'branch'
+        name: Create release branch
+        run: |
+          git checkout -b ${{ inputs.ref_name }}
+          git push origin ${{ inputs.ref_name }} -f
+          echo BRANCH=${{ inputs.ref_name }} | tee -a $GITHUB_ENV
+      - name: Store branch and tag
+        id: store-tag-branch
+        run: |
+          echo BRANCH=$BRANCH >> $GITHUB_OUTPUT
+          echo TAG=$TAG >> $GITHUB_OUTPUT
+    outputs:
+      branch: ${{ steps.store-tag-branch.outputs.BRANCH }}
+      tag: ${{ steps.store-tag-branch.outputs.TAG }}
+
+  call-reusable-ci-fork-workflow:
+    needs: create-test-environment
+    uses: ./.github/workflows/fork-ci-reusable.yml
+    with:
+      registry-internal: ghcr.io/mellanox
+      service-account-username: nvidia-ci-cd
+      service-account-email: svc-cloud-orch-gh@nvidia.com
+      components: '[{"name": "nicConfigurationOperator", "imageName": "cloud-orchestration-reusable-workflows", "Dockerfile": "Dockerfile.test"},
+      {"name": "nicConfigurationConfigDaemon", "imageName": "another-cloud-orchestration-reusable-workflows", "Dockerfile": "Dockerfile.another-test"}]'
+      chart-name: node-feature-discovery
+      chart-path: "charts-to-test/node-feature-discovery"
+      exclude-chart-files: '["Chart.yaml", "new-file-to-exclude"]'
+      ref-name: ${{ inputs.ref_name }}
+      ref-type: ${{ inputs.ref_type }}
+      network-operator-repo: reusable-release-workflows
+    secrets:
+      registry-username: ${{ github.repository_owner }}
+      registry-token: ${{ secrets.GITHUB_TOKEN }}
+      cicd-gh-token: ${{ secrets.GITHUB_TOKEN }}
+
+  # TODO test that image was made with a new DOCKER_TAG from a specific branch
+  validate-pr-with-updated-version-open:
+    needs: call-reusable-ci-fork-workflow
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Validate that a PR with updated versions was opened
+        id: validate_pr_open
+        run: |
+          OUTPUT=$(gh pr list --repo ${{ github.repository }} --search="state:open in:title ${{ needs.call-reusable-ci-fork-workflow.outputs.docker-tag }}" --json headRefName,number)
+
+          # Validate that the output contains exactly one element
+          if [ "$(echo "$OUTPUT" | jq 'length')" -eq 1 ]; then
+            HEAD_REF_NAME=$(echo "$OUTPUT" | jq -r '.[0].headRefName')
+            PR_NUMBER=$(echo "$OUTPUT" | jq -r '.[0].number')
+            echo "head_ref_name=$HEAD_REF_NAME" >> $GITHUB_OUTPUT
+            echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          else
+            echo "Error: Output does not contain exactly 1 element." >&2
+            exit 1
+          fi
+        shell: bash
+    outputs:
+      head-ref-name: ${{ steps.validate_pr_open.outputs.HEAD_REF_NAME }}
+      pr-number: ${{ steps.validate_pr_open.outputs.PR_NUMBER }}
+
+  validate-pr-changes:
+    needs:
+      - call-reusable-ci-fork-workflow
+      - validate-pr-with-updated-version-open
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate-pr-with-updated-version-open.outputs.head-ref-name }}
+      - name: Verify version changes in PR
+        env:
+          DOCKER_TAG: ${{ needs.call-reusable-ci-fork-workflow.outputs.docker-tag }}
+          # TODO make react on public and internal registries if needed
+          DOCKER_REGISTRY: ghcr.io/mellanox
+          RELEASE_FILE: hack/release.yaml
+        run: |
+          make check-release-build
+
+          echo "Validating changes in release.yaml..."
+
+          OPERATOR_VERSION=$(yq '.nicConfigurationOperator.version' $RELEASE_FILE)
+          DAEMON_VERSION=$(yq '.nicConfigurationConfigDaemon.version' $RELEASE_FILE)
+          OPERATOR_REPO=$(yq '.nicConfigurationOperator.repository' $RELEASE_FILE)
+          DAEMON_REPO=$(yq '.nicConfigurationConfigDaemon.repository' $RELEASE_FILE)
+
+          echo "Found operator version $OPERATOR_VERSION and repo $OPERATOR_REPO, daemon version $DAEMON_VERSION and repo $DAEMON_REPO"
+
+          if [ "$OPERATOR_VERSION" != "$DOCKER_TAG" ]; then \
+              echo "Error: NicConfigurationOperator version is not set correctly in $RELEASE_FILE"; exit 1; \
+          fi
+
+          if [ "$DAEMON_VERSION" != "$DOCKER_TAG" ]; then \
+              echo "Error: NicConfigurationConfigDaemon version is not set correctly in $RELEASE_FILE"; exit 1; \
+          fi
+
+          if [ "$OPERATOR_REPO" != "$DOCKER_REGISTRY" ]; then \
+              echo "Error: NicConfigurationOperator repository is not set correctly in $RELEASE_FILE"; exit 1; \
+          fi
+
+          if [ "$DAEMON_REPO" != "$DOCKER_REGISTRY" ]; then \
+              echo "Error: NicConfigurationConfigDaemon repository is not set correctly in $RELEASE_FILE"; exit 1; \
+          fi
+
+          # TODO validate that the docker image was built from the requested branch
+
+          echo "Validating changes in the helm chart..."
+
+          PATH_TO_CHART="deployment/network-operator/charts/node-feature-discovery"
+
+          ls $PATH_TO_CHART
+
+          if [[ -f "$PATH_TO_CHART/new-file-to-exclude" ]]; then
+            echo "Error: new-file-to-exclude should not have been copied to network-operator" >&2
+            exit 1
+          fi
+
+          if [[ ! -f "$PATH_TO_CHART/new-file-to-add" ]]; then
+            echo "Error: new-file-to-add should have been copied to network-operator" >&2
+            exit 1
+          fi
+
+          if grep -Fxq "new content" $PATH_TO_CHART/Chart.yaml; then
+            echo "Error: existing-file-to-exclude should not have been updated in the network-operator" >&2
+            exit 1
+          fi
+
+          if ! grep -Fxq "new content" $PATH_TO_CHART/crds/nfd-api-crds.yaml; then
+            echo "Error: existing-file-to-change should have been updated in the network-operator" >&2
+            exit 1
+          fi
+
+  cleanup:
+    if: always()
+    env:
+      GH_TOKEN: ${{ github.token }}
+    needs:
+      - create-test-environment
+      - validate-pr-with-updated-version-open
+      - validate-pr-changes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Delete all tags and branches that might have been created in the repo
+        env:
+          BRANCH: ${{ needs.create-test-environment.outputs.branch }}
+          TAG: ${{ needs.create-test-environment.outputs.tag }}
+          PR_BRANCH: ${{ needs.validate-pr-with-updated-version-open.outputs.head-ref-name }}
+          PR_NUMBER: ${{ needs.validate-pr-with-updated-version-open.outputs.pr-number }}
+        run: |
+          if [ -n "$PR_NUMBER" ]; then
+            echo "Closing PR #$PR_NUMBER..."
+            gh pr close "$PR_NUMBER"
+          fi
+
+          if [ -n "$PR_BRANCH" ]; then
+          echo "Deleting pr branch $PR_BRANCH from origin..."
+          git push origin --delete "$PR_BRANCH"
+          fi
+
+          if [ -n "$BRANCH" ]; then
+            echo "Deleting branch $BRANCH from origin..."
+            git push origin --delete "$BRANCH"
+          fi
+
+          if [ -n "$TAG" ]; then
+            echo "Deleting tag $TAG from origin..."
+            git push origin --delete refs/tags/$TAG
+          fi
