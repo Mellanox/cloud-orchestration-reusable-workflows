@@ -1,0 +1,92 @@
+NetworkOperator:
+  image: network-operator
+  repository: nvcr.io/nvstaging/mellanox
+  version: v25.1.0-beta.3
+NetworkOperatorInitContainer:
+  image: network-operator-init-container
+  repository: ghcr.io/mellanox
+  version: v0.0.3
+SriovNetworkOperator:
+  image: sriov-network-operator
+  repository: nvcr.io/nvstaging/mellanox
+  version: network-operator-25.1.0-beta.3
+SriovNetworkOperatorWebhook:
+  image: sriov-network-operator-webhook
+  repository: nvcr.io/nvstaging/mellanox
+  version: network-operator-25.1.0-beta.3
+SriovConfigDaemon:
+  image: sriov-network-operator-config-daemon
+  repository: nvcr.io/nvstaging/mellanox
+  version: network-operator-25.1.0-beta.3
+SriovCni:
+  image: sriov-cni
+  repository: ghcr.io/k8snetworkplumbingwg
+  version: v2.8.1
+SriovIbCni:
+  image: ib-sriov-cni
+  repository: ghcr.io/k8snetworkplumbingwg
+  version: v1.1.1
+Mofed:
+  image: doca-driver
+  repository: nvcr.io/nvstaging/mellanox
+  version: 25.04-0.2.3.0-0
+RdmaSharedDevicePlugin:
+  image: k8s-rdma-shared-dev-plugin
+  repository: ghcr.io/mellanox
+  version: v1.5.2
+SriovDevicePlugin:
+  image: sriov-network-device-plugin
+  repository: ghcr.io/k8snetworkplumbingwg
+  version: v3.9.0
+IbKubernetes:
+  image: ib-kubernetes
+  repository: ghcr.io/mellanox
+  version: v1.1.0
+CniPlugins:
+  image: plugins
+  repository: ghcr.io/k8snetworkplumbingwg
+  version: v1.6.2
+Multus:
+  image: multus-cni
+  repository: ghcr.io/k8snetworkplumbingwg
+  version: v4.1.0
+Ipoib:
+  image: ipoib-cni
+  repository: ghcr.io/mellanox
+  version: v1.2.1
+IpamPlugin:
+  image: whereabouts
+  repository: ghcr.io/k8snetworkplumbingwg
+  version: v0.7.0
+nvIpam:
+  image: nvidia-k8s-ipam
+  repository: ghcr.io/mellanox
+  version: v0.3.5
+nicFeatureDiscovery:
+  image: nic-feature-discovery
+  repository: ghcr.io/mellanox
+  version: v0.0.1
+docaTelemetryService:
+  image: doca_telemetry
+  repository: nvcr.io/nvidia/doca
+  version: 1.16.5-doca2.6.0-host
+ovsCni:
+  image: ovs-cni-plugin
+  repository: ghcr.io/k8snetworkplumbingwg
+  version: v0.37.0
+rdmaCni:
+  image: rdma-cni
+  repository: ghcr.io/k8snetworkplumbingwg
+  version: v1.2.0
+nicConfigurationOperator:
+  image: nic-configuration-operator
+  repository: ghcr.io/mellanox
+  version: v0.1.18
+nicConfigurationConfigDaemon:
+  image: nic-configuration-operator-daemon
+  repository: ghcr.io/mellanox
+  version: v0.1.18
+maintenanceOperator:
+  image: maintenance-operator
+  repository: ghcr.io/mellanox
+  version: v0.2.0

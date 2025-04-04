@@ -1,0 +1,137 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: kube-multus-ds
+  namespace: {{ .RuntimeSpec.Namespace }}
+  labels:
+    tier: node
+    app: multus
+    name: multus
+spec:
+  selector:
+    matchLabels:
+      name: multus
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        tier: node
+        app: multus
+        name: multus
+    spec:
+      hostNetwork: true
+      {{- if .NodeAffinity }}
+      affinity:
+        nodeAffinity:
+          {{- .NodeAffinity | yaml | nindent 10 }}
+      {{- end }}
+      serviceAccountName: multus
+      {{- if .CrSpec.ImagePullSecrets }}
+      imagePullSecrets:
+      {{- range .CrSpec.ImagePullSecrets }}
+        - name: {{ . }}
+      {{- end }}
+      {{- end }}
+      tolerations:
+        {{- if .Tolerations }}
+        {{- .Tolerations | yaml | nindent 8 }}
+        {{- end }}
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      {{- if hasPrefix .CrSpec.Version "v4" }}
+      priorityClassName: "system-node-critical"
+      terminationGracePeriodSeconds: 10        
+      initContainers:
+        - name: install-multus-binary
+          image: {{ imagePath .CrSpec.Repository .CrSpec.Image .CrSpec.Version }}
+          command: ["/install_multus"]
+          args:
+            - "--type"
+            - "thin"
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "15Mi"
+          securityContext:
+            privileged: true
+          terminationMessagePolicy: FallbackToLogsOnError
+          volumeMounts:
+            - name: cnibin
+              mountPath: /host/opt/cni/bin
+              mountPropagation: Bidirectional
+      {{- end }}
+      containers:
+        - name: kube-multus
+          image: {{ imagePath .CrSpec.Repository .CrSpec.Image .CrSpec.Version }}
+          {{- if hasPrefix .CrSpec.Version "v4" }}
+          command: ["/thin_entrypoint"]
+          args:
+            # /tmp/multus-conf/00-multus.conf is where multus-cfg ConfigMap is mounted then entrypoint.sh copy it to
+            # /host/etc/cni/net.d/00-multus.conf
+            - "--multus-conf-file={{- if .CrSpec.Config -}}/tmp/multus-conf/00-multus.conf{{- else -}}auto{{- end -}}"
+            - "--multus-autoconfig-dir=/host/etc/cni/net.d"
+            - "--cni-conf-dir=/host/etc/cni/net.d"
+            - "--cleanup-config-on-exit"
+            - "--skip-config-watch"
+          {{- else }}
+          command: ["/entrypoint.sh"]
+          args:
+            - "--cni-version=0.3.1"
+            - "--multus-conf-file={{- if .CrSpec.Config -}}/tmp/multus-conf/00-multus.conf{{- else -}}auto{{- end -}}"
+          # Remove multus config file to prevent failing of creating/deleting pods since multus will fail due to
+          # permission issue, https://github.com/intel/multus-cni/issues/592
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "rm -f /host/etc/cni/net.d/00-multus.conf"]
+          {{- end }}
+          {{- with .RuntimeSpec.ContainerResources }}
+          {{- with index . "kube-multus" }}
+          resources:
+            {{- if .Requests }}
+            requests:
+              {{ .Requests | yaml | nindent 14}}
+            {{- end }}
+            {{- if .Limits }}
+            limits:
+              {{ .Limits | yaml | nindent 14}}
+            {{- end }}
+          {{- end }}
+          {{- else }}
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "50Mi"
+            limits:
+              cpu: "100m"
+              memory: "50Mi"
+          {{- end }}
+          securityContext:
+            privileged: true
+          terminationMessagePolicy: FallbackToLogsOnError
+          volumeMounts:
+            - name: cni
+              mountPath: /host/etc/cni/net.d
+            - name: cnibin
+              mountPath: /host/opt/cni/bin
+          {{- if .CrSpec.Config }}
+            - name: multus-cni-config
+              mountPath: /tmp/multus-conf
+          {{- end }}
+      volumes:
+        - name: cni
+          hostPath:
+            path: /etc/cni/net.d
+        - name: cnibin
+          hostPath:
+            path: {{ .RuntimeSpec.CniBinDirectory }}
+      {{- if .CrSpec.Config }}
+        - name: multus-cni-config
+          configMap:
+            name: multus-cni-config
+            items:
+            - key: cni-conf.json
+              path: 00-multus.conf
+      {{- end }}

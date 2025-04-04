@@ -1,0 +1,138 @@
+# Copyright 2021 NVIDIA
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: network-operator-sriov-device-plugin
+  namespace: {{ .RuntimeSpec.Namespace }}
+  labels:
+    tier: node
+    app: sriovdp
+spec:
+  selector:
+    matchLabels:
+      name: network-operator-sriov-device-plugin
+  template:
+    metadata:
+      labels:
+        name: network-operator-sriov-device-plugin
+        tier: node
+        app: sriovdp
+    spec:
+      priorityClassName: system-node-critical
+      hostNetwork: true
+      nodeSelector:
+        feature.node.kubernetes.io/pci-15b3.present: "true"
+        network.nvidia.com/operator.mofed.wait: "false"
+      {{- if .NodeAffinity }}
+      affinity:
+        nodeAffinity:
+          {{- .NodeAffinity | yaml | nindent 10 }}
+      {{- end }}
+      tolerations:
+        {{- if .Tolerations }}
+        {{- .Tolerations | yaml | nindent 8 }}
+        {{- end }}
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      serviceAccountName: network-operator-sriov-device-plugin
+      {{- if .CrSpec.ImagePullSecrets }}
+      imagePullSecrets:
+      {{- range .CrSpec.ImagePullSecrets }}
+        - name: {{ . }}
+      {{- end }}
+      {{- end }}
+{{- if .DeployInitContainer}}
+      initContainers:
+        - name: ofed-driver-validation
+          image: {{ imagePath .CrSpec.ImageSpec.Repository .CrSpec.ImageSpec.Image .CrSpec.ImageSpec.Version }}
+          imagePullPolicy: IfNotPresent
+          command: ['sh', '-c']
+          args: ["until lsmod | grep mlx5_core; do echo waiting for OFED drivers to be loaded; sleep 30; done"]
+{{- end}}
+      containers:
+        - name: kube-sriovdp
+          image: {{ imagePath .CrSpec.ImageSpec.Repository .CrSpec.ImageSpec.Image .CrSpec.ImageSpec.Version }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --log-dir=sriovdp
+            - --log-level=10
+          {{- if .CrSpec.UseCdi}}
+            - --use-cdi
+          {{- end}}
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: devicesock
+              mountPath: /var/lib/kubelet/device-plugins
+              readOnly: false
+            - name: plugins-registry
+              mountPath: /var/lib/kubelet/plugins_registry
+              readOnly: false
+            - name: log
+              mountPath: /var/log
+            - name: config-volume
+              mountPath: /etc/pcidp
+            - name: device-info
+              mountPath: /var/run/k8s.cni.cncf.io/devinfo/dp
+            {{- if .CrSpec.UseCdi}}
+            - name: dynamic-cdi
+              mountPath: /var/run/cdi
+            - name: host-config-volume
+              mountPath: /host/etc/pcidp/
+            {{- end}}
+          {{- with .RuntimeSpec.ContainerResources }}
+          {{- with index . "kube-sriovdp" }}
+          resources:
+            {{- if .Requests }}
+            requests:
+              {{ .Requests | yaml | nindent 14}}
+            {{- end }}
+            {{- if .Limits }}
+            limits:
+              {{ .Limits | yaml | nindent 14}}
+            {{- end }}
+          {{- end }}
+          {{- end }}
+      volumes:
+        - name: devicesock
+          hostPath:
+            path: /var/lib/kubelet/device-plugins
+        - name: plugins-registry
+          hostPath:
+            path: /var/lib/kubelet/plugins_registry
+        - name: log
+          hostPath:
+            path: /var/log
+        - name: device-info
+          hostPath:
+            path: /var/run/k8s.cni.cncf.io/devinfo/dp
+            type: DirectoryOrCreate
+        - name: config-volume
+          configMap:
+            name: network-operator-sriovdp-config
+            items:
+              - key: config.json
+                path: config.json
+        {{- if .CrSpec.UseCdi}}
+        - name: dynamic-cdi
+          hostPath:
+            path: /var/run/cdi
+            type: DirectoryOrCreate
+        - name: host-config-volume
+          hostPath:
+            path: /etc/pcidp
+            type: DirectoryOrCreate
+        {{- end}}

@@ -1,0 +1,50 @@
+{
+  "type": "object",
+  "properties": {
+    "resourceList": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "resourceName": {
+            "type": "string"
+          },
+          "resourcePrefix": {
+            "type": "string"
+          },
+          "deviceType": {
+            "type": "string",
+            "enum": [
+              "accelerator",
+              "netDevice",
+              "auxNetDevice"
+            ]
+          },
+          "excludeTopology": {
+            "type": "boolean"
+          },
+          "selectors": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              },
+              {
+                "type": "object"
+              }
+            ]
+          }
+        }
+      },
+      "required": [
+        "resourceName"
+      ]
+    }
+  },
+  "required": [
+    "resourceList"
+  ]
+}

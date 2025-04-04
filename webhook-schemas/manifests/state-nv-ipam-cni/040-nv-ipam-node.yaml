@@ -1,0 +1,127 @@
+# 2023 NVIDIA CORPORATION & AFFILIATES
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nv-ipam-node
+  namespace: {{ .RuntimeSpec.Namespace }}
+  labels:
+    component: nv-ipam-node
+    app: nv-ipam
+    name: nv-ipam-node
+spec:
+  selector:
+    matchLabels:
+      name: nv-ipam-node
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        component: nv-ipam-node
+        app: nv-ipam
+        name: nv-ipam-node
+    spec:
+      serviceAccountName: nv-ipam-node
+      terminationGracePeriodSeconds: 10
+      tolerations:
+        {{- if .Tolerations }}
+        {{- .Tolerations | yaml | nindent 8 }}
+        {{- end }}
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      {{- if .NodeAffinity }}
+      affinity:
+        nodeAffinity:
+          {{- .NodeAffinity | yaml | nindent 10 }}
+      {{- end}}
+      {{- if .CrSpec.ImagePullSecrets }}
+      imagePullSecrets:
+      {{- range .CrSpec.ImagePullSecrets }}
+        - name: {{ . }}
+      {{- end }}
+      {{- end }}
+      containers:
+      - name: nv-ipam-node
+        image: {{ imagePath .CrSpec.Repository .CrSpec.Image .CrSpec.Version }}
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: IPPOOLS_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        command: ["/ipam-node"]
+        args:
+          - --node-name=$(NODE_NAME)
+          - --v=1 # log level for ipam-node
+          - --logging-format=json
+          - --bind-address=unix:///var/lib/cni/nv-ipam/daemon.sock
+          - --store-file=/var/lib/cni/nv-ipam/store
+          - --cni-daemon-socket=unix:///var/lib/cni/nv-ipam/daemon.sock
+          - --cni-daemon-call-timeout=5 # 5 seconds
+          - --cni-bin-dir=/opt/cni/bin
+          - --cni-conf-dir=/etc/cni/net.d/nv-ipam.d
+          - --cni-log-file=/var/log/nv-ipam-cni.log
+          - --cni-log-level=info # log level for shim CNI
+          - --ippools-namespace=$(IPPOOLS_NAMESPACE)
+        {{- with .RuntimeSpec.ContainerResources }}
+        {{- with index . "nv-ipam-node" }}
+        resources:
+          {{- if .Requests }}
+          requests:
+            {{ .Requests | yaml | nindent 12}}
+          {{- end }}
+          {{- if .Limits }}
+          limits:
+            {{ .Limits | yaml | nindent 12}}
+          {{- end }}
+        {{- end }}
+        {{- else }}
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "50Mi"
+          limits:
+            cpu: "300m"
+            memory: "300Mi"
+        {{- end }}
+        securityContext:
+          privileged: true
+        volumeMounts:
+          - name: cnibin
+            mountPath: /opt/cni/bin
+          - name: cniconf
+            mountPath: /etc/cni/net.d/nv-ipam.d
+          - name: daemonstate
+            mountPath: /var/lib/cni/nv-ipam/
+      volumes:
+        - name: cnibin
+          hostPath:
+            path: {{ .RuntimeSpec.CniBinDirectory }}
+            type: DirectoryOrCreate
+        - name: cniconf
+          hostPath:
+            path: /etc/cni/net.d/nv-ipam.d
+            type: DirectoryOrCreate
+        - name: daemonstate
+          hostPath:
+            path: /var/lib/cni/nv-ipam/
+            type: DirectoryOrCreate
+---
