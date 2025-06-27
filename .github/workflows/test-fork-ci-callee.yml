@@ -31,13 +31,13 @@ jobs:
         run: |
           git tag ${{ inputs.ref_name }}
           git push origin ${{ inputs.ref_name }} -f
-          # We need to cut the release branch from the 'network-operator' master branch
+          # We need to cut the staging branch from the 'network-operator' master branch
           git fetch origin master --depth 1
           git checkout origin/master
-          release_branch=$(echo ${{ inputs.ref_name }} | sed -E 's/^network-operator-([0-9]+\.[0-9]+).+/v\1.x/')  # example: transforms "network-operator-25.1.0-beta.2" to "v25.1.x"
-          git checkout -b $release_branch
-          git push origin $release_branch -f
-          echo BRANCH=$release_branch | tee -a $GITHUB_ENV
+          staging_branch=$(echo ${{ inputs.ref_name }} | sed 's/network-operator/staging/')  # example: transforms "network-operator-v25.1.0-beta.2" to "staging-v25.1.0-beta.2"
+          git checkout -b $staging_branch
+          git push origin $staging_branch -f
+          echo BRANCH=$staging_branch | tee -a $GITHUB_ENV
           echo TAG=${{ inputs.ref_name }} | tee -a $GITHUB_ENV
       - if: inputs.ref_type == 'branch'
         name: Create release branch
@@ -61,8 +61,7 @@ jobs:
       registry-internal: ghcr.io/mellanox
       service-account-username: nvidia-ci-cd
       service-account-email: svc-cloud-orch-gh@nvidia.com
-      components: '[{"name": "nicConfigurationOperator", "imageName": "cloud-orchestration-reusable-workflows", "Dockerfile": "Dockerfile.test"},
-      {"name": "nicConfigurationConfigDaemon", "imageName": "another-cloud-orchestration-reusable-workflows", "Dockerfile": "Dockerfile.another-test"}]'
+      components: '[{"name": "nicConfigurationOperator", "imageName": "cloud-orchestration-reusable-workflows", "dockerfile": "Dockerfile.test"}, {"name": "nicConfigurationConfigDaemon", "imageName": "another-cloud-orchestration-reusable-workflows", "dockerfile": "Dockerfile.another-test"}]'
       chart-name: node-feature-discovery
       chart-path: "charts-to-test/node-feature-discovery"
       exclude-chart-files: '["Chart.yaml", "new-file-to-exclude"]'

@@ -144,11 +144,11 @@ jobs:
           ref: ${{ needs.determine_ref.outputs.github_ref_name }}
       - name: Determine base branch
         run: |
-          if [[ "${{ needs.determine_ref.outputs.github_ref_type }}" == "branch" || "${{ needs.determine_ref.outputs.github_ref_name }}" == *"beta"* ]]; then  # branch commits and beta tags update values on network-operator's *master* branch
+          if [[ "${{ needs.determine_ref.outputs.github_ref_type }}" == "branch" ]]; then  # branch commits update values on network-operator's *master* branch
             echo BASE_BRANCH=master | tee -a $GITHUB_ENV
-          else  # GA and `-rc.` tags update values on network-operator's respective *release* branches
-            release_branch=$(echo ${{ needs.determine_ref.outputs.github_ref_name }} | sed -E 's/^network-operator-([0-9]+\.[0-9]+).+/v\1.x/')  # example: transforms "network-operator-25.1.0-beta.2" to "v25.1.x"
-            echo BASE_BRANCH=$release_branch | tee -a $GITHUB_ENV
+          else  # tags use the tag name with network-operator replaced with staging
+            staging_branch=$(echo ${{ needs.determine_ref.outputs.github_ref_name }} | sed 's/network-operator/staging/')  # example: transforms "network-operator-25.1.0-beta.2" to "staging-25.1.0-beta.2"
+            echo BASE_BRANCH=$staging_branch | tee -a $GITHUB_ENV
           fi
       - uses: actions/checkout@v4
         with:
