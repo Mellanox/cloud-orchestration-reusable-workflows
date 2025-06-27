@@ -18,10 +18,10 @@ jobs:
     strategy:
       matrix:
         configurations: [
-          { "ref_name": "network-operator-11.1-beta.1", "ref_type": "tag" },
-          { "ref_name": "network-operator-22.2-rc.1", "ref_type": "tag" },
-          { "ref_name": "network-operator-33.3.1", "ref_type": "tag" },
-          { "ref_name": "network-operator-44.4.x", "ref_type": "branch" }
+          { "ref_name": "network-operator-v11.1-beta.1", "ref_type": "tag" },
+          { "ref_name": "network-operator-v22.2-rc.1", "ref_type": "tag" },
+          { "ref_name": "network-operator-v33.3.1", "ref_type": "tag" },
+          { "ref_name": "network-operator-v44.4.x", "ref_type": "branch" }
         ]
     concurrency:
       group: ${{ github.workflow }}-${{ matrix.configurations.ref_name }}
