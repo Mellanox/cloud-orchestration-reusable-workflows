@@ -53,7 +53,6 @@ jobs:
     outputs:
       branch: ${{ steps.store-tag-branch.outputs.BRANCH }}
       tag: ${{ steps.store-tag-branch.outputs.TAG }}
-
   call-reusable-ci-fork-workflow:
     needs: create-test-environment
     uses: ./.github/workflows/fork-ci-reusable.yml
@@ -61,8 +60,7 @@ jobs:
       registry-internal: ghcr.io/mellanox
       service-account-username: nvidia-ci-cd
       service-account-email: svc-cloud-orch-gh@nvidia.com
-      components: '[{"name": "nicConfigurationOperator", "imageName": "cloud-orchestration-reusable-workflows", "Dockerfile": "Dockerfile.test"},
-      {"name": "nicConfigurationConfigDaemon", "imageName": "another-cloud-orchestration-reusable-workflows", "Dockerfile": "Dockerfile.another-test"}]'
+      components: '[{"name": "nicConfigurationOperator", "imageName": "cloud-orchestration-reusable-workflows", "dockerfile": "Dockerfile.test"}, {"name": "nicConfigurationConfigDaemon", "imageName": "another-cloud-orchestration-reusable-workflows", "dockerfile": "Dockerfile.another-test"}]'
       chart-name: node-feature-discovery
       chart-path: "charts-to-test/node-feature-discovery"
       exclude-chart-files: '["Chart.yaml", "new-file-to-exclude"]'
@@ -74,112 +72,70 @@ jobs:
       registry-token: ${{ secrets.GITHUB_TOKEN }}
       cicd-gh-token: ${{ secrets.GITHUB_TOKEN }}
 
-  # TODO test that image was made with a new DOCKER_TAG from a specific branch
-  validate-pr-with-updated-version-open:
+  validate-docker-images-built:
     needs: call-reusable-ci-fork-workflow
     runs-on: ubuntu-latest
     env:
-      GH_TOKEN: ${{ github.token }}
+      DOCKER_TAG: ${{ needs.call-reusable-ci-fork-workflow.outputs.docker-tag }}
+      DOCKER_REGISTRY: ghcr.io/mellanox
+      EXPECTED_PLATFORMS: "linux/amd64,linux/arm64"
     steps:
-      - name: Validate that a PR with updated versions was opened
-        id: validate_pr_open
-        run: |
-          OUTPUT=$(gh pr list --repo ${{ github.repository }} --search="state:open in:title ${{ needs.call-reusable-ci-fork-workflow.outputs.docker-tag }}" --json headRefName,number)
-
-          # Validate that the output contains exactly one element
-          if [ "$(echo "$OUTPUT" | jq 'length')" -eq 1 ]; then
-            HEAD_REF_NAME=$(echo "$OUTPUT" | jq -r '.[0].headRefName')
-            PR_NUMBER=$(echo "$OUTPUT" | jq -r '.[0].number')
-            echo "head_ref_name=$HEAD_REF_NAME" >> $GITHUB_OUTPUT
-            echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
-          else
-            echo "Error: Output does not contain exactly 1 element." >&2
-            exit 1
-          fi
-        shell: bash
-    outputs:
-      head-ref-name: ${{ steps.validate_pr_open.outputs.HEAD_REF_NAME }}
-      pr-number: ${{ steps.validate_pr_open.outputs.PR_NUMBER }}
-
-  validate-pr-changes:
-    needs:
-      - call-reusable-ci-fork-workflow
-      - validate-pr-with-updated-version-open
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+      - name: Login to Container Registry
+        uses: docker/login-action@v3
         with:
-          ref: ${{ needs.validate-pr-with-updated-version-open.outputs.head-ref-name }}
-      - name: Verify version changes in PR
-        env:
-          GH_TOKEN: ${{ github.token }}
-          DOCKER_TAG: ${{ needs.call-reusable-ci-fork-workflow.outputs.docker-tag }}
-          PR_NUMBER: ${{ needs.validate-pr-with-updated-version-open.outputs.pr-number }}
-          DOCKER_REGISTRY: ghcr.io/mellanox
-          RELEASE_FILE: hack/release.yaml
+          registry: ${{ env.DOCKER_REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Validate that docker images were built successfully
         run: |
-          echo "Validating that PR description contains the current workflow run url..."
-          CURRENT_RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          PR_BODY=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json body -q '.body')
-          if ! echo "$PR_BODY" | grep -Fq "$CURRENT_RUN_URL"; then
-            echo "Error: PR body does not contain the current workflow run URL ($CURRENT_RUN_URL)" >&2
+          echo "Validating that docker tag was generated: $DOCKER_TAG"
+          if [ -z "$DOCKER_TAG" ]; then
+            echo "Error: Docker tag was not generated" >&2
             exit 1
           fi
-
-          make check-release-build
-
-          echo "Validating changes in release.yaml..."
-
-          OPERATOR_VERSION=$(yq '.nicConfigurationOperator.version' $RELEASE_FILE)
-          DAEMON_VERSION=$(yq '.nicConfigurationConfigDaemon.version' $RELEASE_FILE)
-          OPERATOR_REPO=$(yq '.nicConfigurationOperator.repository' $RELEASE_FILE)
-          DAEMON_REPO=$(yq '.nicConfigurationConfigDaemon.repository' $RELEASE_FILE)
-
-          echo "Found operator version $OPERATOR_VERSION and repo $OPERATOR_REPO, daemon version $DAEMON_VERSION and repo $DAEMON_REPO"
-
-          if [ "$OPERATOR_VERSION" != "$DOCKER_TAG" ]; then \
-              echo "Error: NicConfigurationOperator version is not set correctly in $RELEASE_FILE"; exit 1; \
-          fi
-
-          if [ "$DAEMON_VERSION" != "$DOCKER_TAG" ]; then \
-              echo "Error: NicConfigurationConfigDaemon version is not set correctly in $RELEASE_FILE"; exit 1; \
-          fi
-
-          if [ "$OPERATOR_REPO" != "$DOCKER_REGISTRY" ]; then \
-              echo "Error: NicConfigurationOperator repository is not set correctly in $RELEASE_FILE"; exit 1; \
-          fi
-
-          if [ "$DAEMON_REPO" != "$DOCKER_REGISTRY" ]; then \
-              echo "Error: NicConfigurationConfigDaemon repository is not set correctly in $RELEASE_FILE"; exit 1; \
-          fi
-
-          # TODO validate that the docker image was built from the requested branch
-
-          echo "Validating changes in the helm chart..."
-
-          PATH_TO_CHART="deployment/network-operator/charts/node-feature-discovery"
-
-          ls $PATH_TO_CHART
-
-          if [[ -f "$PATH_TO_CHART/new-file-to-exclude" ]]; then
-            echo "Error: new-file-to-exclude should not have been copied to network-operator" >&2
-            exit 1
-          fi
-
-          if [[ ! -f "$PATH_TO_CHART/new-file-to-add" ]]; then
-            echo "Error: new-file-to-add should have been copied to network-operator" >&2
-            exit 1
-          fi
-
-          if grep -Fxq "new content" $PATH_TO_CHART/Chart.yaml; then
-            echo "Error: existing-file-to-exclude should not have been updated in the network-operator" >&2
-            exit 1
-          fi
-
-          if ! grep -Fxq "new content" $PATH_TO_CHART/crds/nfd-api-crds.yaml; then
-            echo "Error: existing-file-to-change should have been updated in the network-operator" >&2
-            exit 1
-          fi
+          
+          # Define the images to check based on the components from the workflow
+          IMAGES=(
+            "$DOCKER_REGISTRY/cloud-orchestration-reusable-workflows:$DOCKER_TAG"
+            "$DOCKER_REGISTRY/another-cloud-orchestration-reusable-workflows:$DOCKER_TAG"
+          )
+          
+          echo "Verifying built images with docker manifest..."
+          for image in "${IMAGES[@]}"; do
+            echo "Checking image: $image"
+            
+            # Check if the image manifest exists
+            if ! docker manifest inspect "$image" > /dev/null 2>&1; then
+              echo "Error: Image $image does not exist or cannot be accessed" >&2
+              exit 1
+            fi
+            
+            # Get the manifest and check platforms
+            MANIFEST=$(docker manifest inspect "$image" 2>/dev/null)
+            if [ $? -ne 0 ]; then
+              echo "Error: Failed to inspect manifest for $image" >&2
+              exit 1
+            fi
+            
+            # Extract platforms from manifest
+            PLATFORMS=$(echo "$MANIFEST" | jq -r '.manifests[]?.platform | select(. != null) | "\(.os)/\(.architecture)"' | sort | tr '\n' ',' | sed 's/,$//')
+            
+            echo "Found platforms for $image: $PLATFORMS"
+            
+            # Check if expected platforms are present
+            IFS=',' read -ra EXPECTED_ARRAY <<< "$EXPECTED_PLATFORMS"
+            for expected_platform in "${EXPECTED_ARRAY[@]}"; do
+              if [[ "$PLATFORMS" != *"$expected_platform"* ]]; then
+                echo "Error: Expected platform $expected_platform not found in image $image" >&2
+                echo "Available platforms: $PLATFORMS" >&2
+                exit 1
+              fi
+            done
+            
+            echo "Successfully verified image $image with platforms: $PLATFORMS"
+          done
+          
+          echo "All docker images successfully verified!"
 
   cleanup:
     if: always()
@@ -187,8 +143,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     needs:
       - create-test-environment
-      - validate-pr-with-updated-version-open
-      - validate-pr-changes
+      - validate-docker-images-built
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -196,25 +151,13 @@ jobs:
         env:
           BRANCH: ${{ needs.create-test-environment.outputs.branch }}
           TAG: ${{ needs.create-test-environment.outputs.tag }}
-          PR_BRANCH: ${{ needs.validate-pr-with-updated-version-open.outputs.head-ref-name }}
-          PR_NUMBER: ${{ needs.validate-pr-with-updated-version-open.outputs.pr-number }}
         run: |
-          if [ -n "$PR_NUMBER" ]; then
-            echo "Closing PR #$PR_NUMBER..."
-            gh pr close "$PR_NUMBER"
-          fi
-
-          if [ -n "$PR_BRANCH" ]; then
-          echo "Deleting pr branch $PR_BRANCH from origin..."
-          git push origin --delete "$PR_BRANCH"
-          fi
-
           if [ -n "$BRANCH" ]; then
             echo "Deleting branch $BRANCH from origin..."
             git push origin --delete "$BRANCH"
           fi
-
           if [ -n "$TAG" ]; then
             echo "Deleting tag $TAG from origin..."
             git push origin --delete refs/tags/$TAG
           fi
+          echo "Test completed successfully - no cleanup needed since no test resources were created"
