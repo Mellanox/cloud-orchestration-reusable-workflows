@@ -1,0 +1,48 @@
+name: Dispatcher Workflow to test Fork CI pipeline
+
+permissions: write-all
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/fork-ci-reusable.yml'
+      - '.github/workflows/test-fork-ci-dispatcher.yml'
+      - '.github/workflows/test-fork-ci-callee.yml'
+  push:
+    branches:
+      - main
+
+jobs:
+  test_workflow_fork_ci:
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        configurations: [
+          { "ref_name": "network-operator-11.1-beta.1", "ref_type": "tag" },
+          { "ref_name": "network-operator-22.2-rc.1", "ref_type": "tag" },
+          { "ref_name": "network-operator-33.3.1", "ref_type": "tag" },
+          { "ref_name": "network-operator-44.4.x", "ref_type": "branch" }
+        ]
+    concurrency:
+      group: ${{ github.workflow }}-${{ matrix.configurations.ref_name }}
+      cancel-in-progress: false
+    steps:
+      - name: Repository Dispatch
+        id: return_dispatch
+        uses: codex-/return-dispatch@v2.0.4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ github.head_ref || github.ref }}
+          repo: cloud-orchestration-reusable-workflows
+          owner: ${{ github.repository_owner }}
+          workflow: test-fork-ci-callee.yml
+          workflow_inputs: ${{ toJSON(matrix.configurations) }}
+          workflow_timeout_seconds: 1200
+      - name: Await Run ID ${{ steps.return_dispatch.outputs.run_id }}
+        uses: Codex-/await-remote-run@v1.12.2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          repo: cloud-orchestration-reusable-workflows
+          owner: ${{ github.repository_owner }}
+          run_id: ${{ steps.return_dispatch.outputs.run_id }}
+          run_timeout_seconds: 6000

@@ -1,0 +1,231 @@
+name: Reusable Fork Docker CI
+
+on:
+  workflow_call:
+    inputs:
+      registry-internal:
+        description: "Address of the internal image registry to push images to"
+        type: string
+        required: true
+      service-account-username:
+        description: "Name of the GH service account to push changes and open PRs"
+        type: string
+        required: true
+      service-account-email:
+        description: "E-mail, associated with the GH service account"
+        type: string
+        required: true
+      # Docker images parameters
+      components:
+        description: "List of components that require image build and version update. Should be a json list of the format: [{'name': 'componentA', 'imageName': 'imageA', 'dockerfile': 'Dockerfile'}]"
+        type: string
+        required: true
+      # Helm chart parameters
+      chart-name:
+        description: "Name used in network-operator for this chart"
+        type: string
+        required: false
+      chart-path:
+        description: "Path to chart files in the caller repo"
+        type: string
+        required: false
+      exclude-chart-files:
+        description: 'List of relative paths to exclude from updating in the network-operator. Should be a json list: ["Chart.yaml", "some-subfolder/file-to-exclude.yaml"]'
+        type: string
+        required: false
+      # Testing parameters
+      ref-name:
+        description: "Name of the git ref to use if github object is not available"
+        type: string
+        required: false
+      ref-type:
+        description: "Type of the git ref to use if github object is not available"
+        type: string
+        required: false
+      network-operator-repo:
+        description: "Network Operator repo url, can be used in tests"
+        type: string
+        required: false
+    secrets:
+      registry-username:
+        description: "Credentials for the container registry"
+        required: true
+      registry-token:
+        description: "Auth token for the container registry"
+        required: true
+      cicd-gh-token:
+        description: "Github auth token with permissions to create pull requests in the network-operator repo"
+        required: true
+    outputs:
+      docker-tag:
+        description: "Docker tag used to build images"
+        value: ${{ jobs.determine_docker_registry_and_tag.outputs.docker_tag }}
+
+jobs:
+  determine_ref:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+    outputs:
+      github_ref_name: ${{ inputs.ref-name || github.ref_name }}
+      github_ref_type: ${{ inputs.ref-type || github.ref_type }}
+  determine_docker_registry_and_tag:
+    needs: determine_ref
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .
+      - if: needs.determine_ref.outputs.github_ref_type == 'branch'
+        name: Determine docker registry and tag (when git branch)
+        run: |
+          echo DOCKER_REGISTRY=${{ inputs.registry-internal }} | tee -a $GITHUB_ENV
+          echo DOCKER_TAG=$(git rev-parse --short HEAD) | tee -a $GITHUB_ENV  # short git commit hash
+      - if: needs.determine_ref.outputs.github_ref_type == 'tag'
+        name: Determine docker registry and tag (when git tag)
+        run: |
+          echo DOCKER_REGISTRY=${{ inputs.registry-internal }} | tee -a $GITHUB_ENV
+          echo DOCKER_TAG=${{ needs.determine_ref.outputs.github_ref_name }} | tee -a $GITHUB_ENV
+      - name: Store docker registry and tag for following jobs
+        id: store-docker-registry-and-tag
+        run: |
+          echo DOCKER_REGISTRY=$DOCKER_REGISTRY >> $GITHUB_OUTPUT
+          echo DOCKER_TAG=$DOCKER_TAG >> $GITHUB_OUTPUT
+    outputs:
+      docker_registry: ${{ steps.store-docker-registry-and-tag.outputs.DOCKER_REGISTRY }}
+      docker_tag: ${{ steps.store-docker-registry-and-tag.outputs.DOCKER_TAG }}
+
+  build_and_push_images:
+    needs:
+      - determine_ref
+      - determine_docker_registry_and_tag
+    runs-on: ubuntu-latest
+    env:
+      BUILD_PLATFORMS: linux/amd64,linux/arm64
+      DOCKER_REGISTRY: ${{ needs.determine_docker_registry_and_tag.outputs.docker_registry }}
+      DOCKER_TAG: ${{ needs.determine_docker_registry_and_tag.outputs.docker_tag }}
+    strategy:
+      matrix:
+        component: ${{ fromJSON(inputs.components) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.determine_ref.outputs.github_ref_name }}
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.DOCKER_REGISTRY }}
+          username: ${{ secrets.registry-username }}
+          password: ${{ secrets.registry-token }}
+      - uses: docker/build-push-action@v4
+        with:
+          platforms: ${{ env.BUILD_PLATFORMS }}
+          context: .
+          file: ${{ matrix.component.dockerfile }}
+          tags: ${{ env.DOCKER_REGISTRY }}/${{ matrix.component.imageName }}:${{ env.DOCKER_TAG }}
+          push: true
+
+  update_network_operator_values:
+    needs:
+      - determine_ref
+      - determine_docker_registry_and_tag
+      - build_and_push_images
+    runs-on: ubuntu-latest
+    env:
+      DOCKER_REGISTRY: ${{ needs.determine_docker_registry_and_tag.outputs.docker_registry }}
+      DOCKER_TAG: ${{ needs.determine_docker_registry_and_tag.outputs.docker_tag }}
+      GH_TOKEN: ${{ secrets.cicd-gh-token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ${{ github.repository }}-fork
+          token: ${{ secrets.cicd-gh-token }}
+          ref: ${{ needs.determine_ref.outputs.github_ref_name }}
+      - name: Determine base branch
+        run: |
+          if [[ "${{ needs.determine_ref.outputs.github_ref_type }}" == "branch" || "${{ needs.determine_ref.outputs.github_ref_name }}" == *"beta"* ]]; then  # branch commits and beta tags update values on network-operator's *master* branch
+            echo BASE_BRANCH=master | tee -a $GITHUB_ENV
+          else  # GA and `-rc.` tags update values on network-operator's respective *release* branches
+            release_branch=$(echo ${{ needs.determine_ref.outputs.github_ref_name }} | sed -E 's/^network-operator-([0-9]+\.[0-9]+).+/v\1.x/')  # example: transforms "network-operator-25.1.0-beta.2" to "v25.1.x"
+            echo BASE_BRANCH=$release_branch | tee -a $GITHUB_ENV
+          fi
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/${{inputs.network-operator-repo || 'network-operator'}}
+          ref: ${{ env.BASE_BRANCH }}
+          token: ${{ secrets.cicd-gh-token }}
+          path: network-operator
+      - name: Configure git user and checkout the update branch
+        working-directory: network-operator
+        run: |
+          git config user.name  ${{ inputs.service-account-username }}
+          git config user.email ${{ inputs.service-account-email }}
+
+          git checkout -b feature/update-${{ github.repository }}-tags-to-${{ env.DOCKER_TAG }}
+      - name: Update helm sub-chart in the network-operator repo
+        if: inputs.chart-name && inputs.chart-path
+        working-directory: network-operator
+        env:
+          CHART_DIR: deployment/network-operator/charts/${{ inputs.chart-name }}
+          COMMIT_MESSAGE: "cicd: update ${{ github.repository }} helm chart files ${{ env.DOCKER_TAG }} in chart values"
+        run: |
+          rm -rf $CHART_DIR/*
+          cp -r ../${{ github.repository }}-fork/${{ inputs.chart-path }}/* $CHART_DIR
+
+          if ! git diff --color --unified=0 --exit-code; then
+            git add deployment/network-operator/charts/${{ inputs.chart-name }}
+          fi
+
+          EXCLUDED_FILES='${{ inputs.exclude-chart-files }}'
+
+          if [ -n "$EXCLUDED_FILES" ]; then
+            git diff --cached --name-only | while read -r file; do
+              REL_PATH=$(realpath -m --relative-to="$CHART_DIR" "$file")
+              if echo "$EXCLUDED_FILES" | jq -e --arg value "$REL_PATH" 'index($value) != null' > /dev/null; then
+                echo "Exclude chart file $file from update"
+                git restore --staged $file
+                git checkout $file || true
+              else
+                echo "Update chart file $file"
+              fi
+            done
+          fi
+
+          # If there are changes to be committed
+          if ! git diff --cached --quiet; then
+            echo "Files to be committed: $(git diff --cached --name-only)"
+            git commit -sm "$COMMIT_MESSAGE"
+            git reset --hard
+          fi
+          
+          if ! git diff --color --unified=0 --exit-code; then
+            echo "There are untracked files still in the repo"
+            exit 1
+          fi
+      - name: Update components versions
+        working-directory: network-operator
+        run: |
+          echo '${{ inputs.components }}' | jq -c '.[]' | while read -r item; do
+            name=$(echo "$item" | jq -r '.name')
+            yq -i ".$name.repository = \"${{ env.DOCKER_REGISTRY }}\""  hack/release.yaml
+            yq -i ".$name.version    = \"${{ env.DOCKER_TAG }}\""       hack/release.yaml
+          done
+      - name: Run make release-build and create PR to update image tags in network-operator values
+        working-directory: network-operator
+        env:
+          COMMIT_MESSAGE: "cicd: update ${{ github.repository }} images tags to ${{ env.DOCKER_TAG }} in chart values"
+        run: |
+          make release-build
+
+          if ! git diff --color --unified=0 --exit-code; then
+            git add -u
+            git commit -sam "$COMMIT_MESSAGE"
+            git push -f -u origin feature/update-${{ github.repository }}-tags-to-${{ env.DOCKER_TAG }}
+            gh pr create \
+              --repo ${{ github.repository_owner }}/${{inputs.network-operator-repo || 'network-operator'}} \
+              --base $BASE_BRANCH \
+              --head $(git branch --show-current) \
+              --title "$COMMIT_MESSAGE" \
+              --body "Created by the [*${{ github.job }}* job](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+          fi

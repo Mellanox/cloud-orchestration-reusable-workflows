@@ -1,0 +1,117 @@
+name: Test Fork Sync workflow
+
+permissions: write-all
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/fork-sync-reusable.yml
+      - .github/workflows/test-fork-sync.yml
+  push:
+    branches:
+      - main
+
+jobs:
+  create-test-environment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create fake upstream and release branches
+        id: create-branches
+        run: |
+          git config user.name "nvidia-ci-cd"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin
+
+          UPSTREAM="upstream-test-sync-${{ github.head_ref || github.ref }}"
+          # branch with 'zzz' should always come up last when sorted lexicographically
+          RELEASE="network-operator-zzz-test-sync-${{ github.head_ref || github.ref }}"
+
+          git checkout -b $UPSTREAM origin/main
+          echo "timestamp=$(date)" >> upstream_file
+          git add upstream_file
+          git commit -m "test upstream commit from $UPSTREAM"
+          git push origin $UPSTREAM
+
+          git checkout -b $RELEASE origin/main
+          echo "timestamp=$(date)" >> downstream_file
+          git add downstream_file
+          git commit -m "test downstream commit from $RELEASE"
+          git push origin $RELEASE
+
+          echo UPSTREAM=$UPSTREAM >> $GITHUB_OUTPUT
+          echo RELEASE=$RELEASE >> $GITHUB_OUTPUT
+    outputs:
+      upstream-branch: ${{ steps.create-branches.outputs.UPSTREAM }}
+      release-branch: ${{ steps.create-branches.outputs.RELEASE }}
+
+  run-sync:
+    needs: create-test-environment
+    uses: ./.github/workflows/fork-sync-reusable.yml
+    with:
+      default-branch: ${{ needs.create-test-environment.outputs.upstream-branch }}
+      upstream-owner: ${{ github.repository_owner }}
+    secrets:
+      gh_token: ${{ secrets.GITHUB_TOKEN }}
+
+  validate-sync:
+    needs:
+      - create-test-environment
+      - run-sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.create-test-environment.outputs.release-branch }}
+          fetch-depth: '2'
+      - run: |
+          git log -n 2 --pretty=format:%s
+
+          # Get the two most recent commit messages (most recent first)
+          readarray -t COMMITS < <(git log -n 2 --pretty=format:%s)
+
+          MSG0="${COMMITS[0]}"
+          MSG1="${COMMITS[1]}"
+
+          echo "Latest 2 commits from ${{ needs.create-test-environment.outputs.release-branch }} branch":
+          printf '%s\n' "${COMMITS[@]}"
+
+          if [ "$MSG0" != "test downstream commit from ${{ needs.create-test-environment.outputs.release-branch }}" ]; then \
+            echo "Error: expected downstream commit; exit 1; \
+          fi
+
+          if [ "$MSG1" != "test upstream commit from ${{ needs.create-test-environment.outputs.upstream-branch }}" ]; then \
+              echo "Error: expected upstream commit; exit 1; \
+          fi
+  cleanup:
+    if: always()
+    env:
+      GH_TOKEN: ${{ github.token }}
+    needs:
+      - create-test-environment
+      - run-sync
+      - validate-sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Delete all branches that might have been created in the repo
+        env:
+          RELEASE_BRANCH: ${{ needs.create-test-environment.outputs.release-branch }}
+          UPSTREAM_BRANCH: ${{ needs.create-test-environment.outputs.upstream-branch }}
+        run: |
+          if [ -n "$RELEASE_BRANCH" ]; then
+            echo "Deleting branch $RELEASE_BRANCH from origin..."
+            git push origin --delete "$RELEASE_BRANCH"
+          fi
+
+          if [ -n "$UPSTREAM_BRANCH" ]; then
+            echo "Deleting branch $UPSTREAM_BRANCH from origin..."
+            git push origin --delete "$UPSTREAM_BRANCH"
+          fi

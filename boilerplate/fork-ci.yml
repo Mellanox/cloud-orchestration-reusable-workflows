@@ -1,0 +1,28 @@
+# This file is an example of fork-ci-reusable usage. Please, adjust the configuration for the specific repo.
+name: Fork CI
+
+on:
+  push:
+    branches:
+      - network-operator-*
+    tags:
+      - network-operator-*
+
+jobs:
+  call-reusable-ci-fork-workflow:
+    uses: Mellanox/cloud-orchestration-reusable-workflows/.github/workflows/fork-ci-reusable.yml@main
+    with:
+      registry-internal: nvcr.io/nvstaging/mellanox
+      service-account-username: nvidia-ci-cd
+      service-account-email: svc-cloud-orch-gh@nvidia.com
+      # For the component name, use the name of the component from https://github.com/Mellanox/network-operator/blob/master/hack/release.yaml
+      # Otherwise, it won't be able to update the versions correctly
+      components: '[{"name": "nicConfigurationOperator", "imageName": "reusable-release-workflows-testing", "Dockerfile": "Dockerfile.test"},
+            {"name": "nicConfigurationConfigDaemon", "imageName": "another-reusable-release-workflows-testing", "Dockerfile": "Dockerfile.another-test"}]'
+      chart-name: node-feature-discovery
+      chart-path: "deployment/node-feature-discovery"
+      exclude-chart-files: '["Chart.yaml", "file-to-exclude"]'
+    secrets:
+      registry-username: ${{ secrets.NVCR_USERNAME }}
+      registry-token: ${{ secrets.NVCR_TOKEN }}
+      cicd-gh-token: ${{ secrets.GH_TOKEN_NVIDIA_CI_CD }}

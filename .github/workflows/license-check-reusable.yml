@@ -1,0 +1,23 @@
+name: Reusable License Check
+
+on:
+  workflow_call:
+
+jobs:
+  license-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - run: make copyright-check
+      - run: make third-party-licenses
+      - run: |
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo "::error ::Some files were modified by license checks:"
+            git diff
+            exit 1
+          fi
