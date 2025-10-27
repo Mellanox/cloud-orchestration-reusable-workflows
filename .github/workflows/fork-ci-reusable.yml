@@ -134,3 +134,7 @@ jobs:
           file: ${{ matrix.component.dockerfile }}
           tags: ${{ env.DOCKER_REGISTRY }}/${{ matrix.component.imageName }}:${{ env.DOCKER_TAG }}
           push: true
+          build-args: |
+            BASE_IMAGE_DOCA_FULL_RT_HOST=${{ env.BASE_IMAGE_DOCA_FULL_RT_HOST }}
+            BASE_IMAGE_GO_DISTROLESS_DEV=${{ env.BASE_IMAGE_GO_DISTROLESS_DEV }}
+            BASE_IMAGE_GO_DISTROLESS=${{ env.BASE_IMAGE_GO_DISTROLESS }}
