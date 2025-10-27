@@ -1,0 +1,61 @@
+name: Sync Dockerfile image tags to reusable workflow
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract image tags from Dockerfile
+        id: extract
+        run: |
+          doca=$(awk '/ AS BASE_IMAGE_DOCA_FULL_RT_HOST/ {print $2; exit}' Dockerfile)
+          go_dev=$(awk '/ AS BASE_IMAGE_GO_DISTROLESS_DEV/ {print $2; exit}' Dockerfile)
+          go_base=$(awk '/ AS BASE_IMAGE_GO_DISTROLESS($|\s)/ {print $2; exit}' Dockerfile)
+          echo "doca=$doca" >> $GITHUB_OUTPUT
+          echo "go_dev=$go_dev" >> $GITHUB_OUTPUT
+          echo "go_base=$go_base" >> $GITHUB_OUTPUT
+      - name: Update fork-ci-reusable.yml envs if needed
+        id: update
+        env:
+          DOCA: ${{ steps.extract.outputs.doca }}
+          GO_DEV: ${{ steps.extract.outputs.go_dev }}
+          GO_BASE: ${{ steps.extract.outputs.go_base }}
+        run: |
+          file=.github/workflows/fork-ci-reusable.yml
+          sed -E -i "s#^([[:space:]]*BASE_IMAGE_DOCA_FULL_RT_HOST:)\s*.*#\\1 ${DOCA}#" "$file"
+          sed -E -i "s#^([[:space:]]*BASE_IMAGE_GO_DISTROLESS_DEV:)\s*.*#\\1 ${GO_DEV}#" "$file"
+          sed -E -i "s#^([[:space:]]*BASE_IMAGE_GO_DISTROLESS:)\s*.*#\\1 ${GO_BASE}#" "$file"
+          if git diff --quiet --exit-code -- "$file"; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+      - name: Create Pull Request
+        if: steps.update.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN_NVIDIA_CI_CD }}
+        run: |
+          git config user.name "nvidia-ci-cd"
+          git config user.email "svc-cloud-orch-gh@nvidia.com"
+          BRANCH="chore/sync-dockerfile-images-$(date +%Y%m%d%H%M%S)"
+          git checkout -b "$BRANCH"
+          git add .github/workflows/fork-ci-reusable.yml
+          git commit -m "chore: sync image tags in fork-ci-reusable.yml from Dockerfile"
+          git push --set-upstream origin "$BRANCH"
+          gh pr create \
+            --title "chore: sync image tags in fork-ci-reusable.yml" \
+            --body $'This PR updates the following envs in `.github/workflows/fork-ci-reusable.yml` based on `Dockerfile`:\n- BASE_IMAGE_DOCA_FULL_RT_HOST\n- BASE_IMAGE_GO_DISTROLESS_DEV\n- BASE_IMAGE_GO_DISTROLESS' \
+            --base main \
+            --head "$BRANCH"
+
+
