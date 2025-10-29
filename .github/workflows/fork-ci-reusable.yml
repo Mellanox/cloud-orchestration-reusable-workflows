@@ -94,6 +94,7 @@ jobs:
         run: |
           echo DOCKER_REGISTRY=$DOCKER_REGISTRY >> $GITHUB_OUTPUT
           echo DOCKER_TAG=$DOCKER_TAG >> $GITHUB_OUTPUT
+          echo $DOCKER_TAG
     outputs:
       docker_registry: ${{ steps.store-docker-registry-and-tag.outputs.DOCKER_REGISTRY }}
       docker_tag: ${{ steps.store-docker-registry-and-tag.outputs.DOCKER_TAG }}
