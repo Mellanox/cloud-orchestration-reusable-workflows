@@ -115,6 +115,20 @@ jobs:
       matrix:
         component: ${{ fromJSON(inputs.components) }}
     steps:
+      - name: Adjust image tag for STIG/FedRAMP images
+        id: set_tag
+        run: |
+          IMAGE_NAME="${{ matrix.component.imageName }}"
+          BASE_TAG="${{ env.DOCKER_TAG }}"
+          case "$IMAGE_NAME" in
+            *stig*)
+              NEW_TAG="${BASE_TAG}-stig-fips"
+              ;;
+            *)
+              NEW_TAG="${BASE_TAG}"
+              ;;
+          esac
+          echo "DOCKER_TAG=$NEW_TAG" >> $GITHUB_ENV
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.determine_ref.outputs.github_ref_name }}
