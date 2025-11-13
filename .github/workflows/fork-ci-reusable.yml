@@ -116,20 +116,28 @@ jobs:
       matrix:
         component: ${{ fromJSON(inputs.components) }}
     steps:
-      - name: Adjust image tag for STIG/FedRAMP images
-        id: set_tag
+      - name: Adjust image tag and build platforms for STIG/FedRAMP images
+        id: set_tag_and_build_platforms
         run: |
           IMAGE_NAME="${{ matrix.component.imageName }}"
-          BASE_TAG="${{ env.DOCKER_TAG }}"
+
           case "$IMAGE_NAME" in
             *stig*)
-              NEW_TAG="${BASE_TAG}-stig-fips"
               ;;
             *)
-              NEW_TAG="${BASE_TAG}"
+              echo "Image is not STIG, nothing to change."
+              exit 0
               ;;
           esac
+
+          BASE_TAG="${{ env.DOCKER_TAG }}"
+          BUILD_PLATFORMS="${{ env.BUILD_PLATFORMS }}"
+
+          NEW_TAG="${BASE_TAG}-stig-fips"
+          NEW_BUILD_PLATFORMS="linux/amd64"
+
           echo "DOCKER_TAG=$NEW_TAG" >> $GITHUB_ENV
+          echo "BUILD_PLATFORMS=$NEW_BUILD_PLATFORMS" >> $GITHUB_ENV
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.determine_ref.outputs.github_ref_name }}
