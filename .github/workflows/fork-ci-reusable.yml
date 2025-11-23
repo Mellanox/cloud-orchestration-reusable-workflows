@@ -92,22 +92,11 @@ jobs:
       - name: Store docker registry and tag for following jobs
         id: store-docker-registry-and-tag
         run: |
-          echo DOCKER_REGISTRY=$DOCKER_REGISTRY >> $GITHUB_OUTPUT
-          echo DOCKER_TAG=$DOCKER_TAG >> $GITHUB_OUTPUT
-          echo GIT_SHA_SHORT=$(git rev-parse --short HEAD) | tee -a $GITHUB_ENV
-          echo DEBUG0
-          git branch
-          echo DEBUG1
-          git branch -a
-          echo DEBUG2
-          git branch -a | grep 'almaslennikov-patch-'  # TODO: after test, change to 'network-operator-'
-          echo DEBUG3
-          git branch -a | grep 'almaslennikov-patch-' | sort -V  # TODO: after test, change to 'network-operator-'
-          exit 88
+          echo DOCKER_REGISTRY=$DOCKER_REGISTRY | tee -a $GITHUB_ENV
+          echo DOCKER_TAG=$DOCKER_TAG | tee -a $GITHUB_ENV
     outputs:
       docker_registry: ${{ steps.store-docker-registry-and-tag.outputs.DOCKER_REGISTRY }}
       docker_tag: ${{ steps.store-docker-registry-and-tag.outputs.DOCKER_TAG }}
-      git_sha_short: ${{ steps.store-docker-registry-and-tag.outputs.GIT_SHA_SHORT }}
 
   build_and_push_images:
     needs:
@@ -118,7 +107,6 @@ jobs:
       BUILD_PLATFORMS: linux/amd64,linux/arm64
       DOCKER_REGISTRY: ${{ needs.determine_docker_registry_and_tag.outputs.docker_registry }}
       DOCKER_TAG: ${{ needs.determine_docker_registry_and_tag.outputs.docker_tag }}
-      GIT_SHA_SHORT: ${{ needs.determine_docker_registry_and_tag.outputs.git_sha_short }}
       GOPROXY: ${{ secrets.goproxy || 'direct' }}
       BASE_IMAGE_DOCA_FULL_RT_HOST: nvcr.io/nvidia/doca/doca:3.1.0-full-rt-host
       BASE_IMAGE_DOCA_BASE_RT_HOST: nvcr.io/nvidia/doca/doca:3.1.0-base-rt-host
@@ -167,10 +155,92 @@ jobs:
           platforms: ${{ env.BUILD_PLATFORMS }}
           context: .
           file: ${{ matrix.component.dockerfile }}
-          tags: ${{ env.DOCKER_REGISTRY }}/${{ matrix.component.imageName }}:${{ env.DOCKER_TAG }},${{env.GIT_SHA_SHORT}},latest
-          push: true
+          tags: ${{ env.DOCKER_REGISTRY }}/${{ matrix.component.imageName }}:${{ env.DOCKER_TAG }}
+          push: false  # TODO: revert to true after testing locally
           build-args: |
             BASE_IMAGE_DOCA_FULL_RT_HOST=${{ env.BASE_IMAGE_DOCA_FULL_RT_HOST }}
             BASE_IMAGE_DOCA_BASE_RT_HOST=${{ env.BASE_IMAGE_DOCA_BASE_RT_HOST }}
             BASE_IMAGE_GO_DISTROLESS_DEV=${{ env.BASE_IMAGE_GO_DISTROLESS_DEV }}
             BASE_IMAGE_GO_DISTROLESS=${{ env.BASE_IMAGE_GO_DISTROLESS }}
+
+  update_component_version_in_network_operator:
+    needs:
+      - determine_ref
+      - determine_docker_registry_and_tag
+      - build_and_push_images
+    if: needs.determine_ref.outputs.github_ref_type == 'branch'
+    runs-on: ubuntu-latest
+
+    permissions:  # TODO: check if this block is required
+      contents: write
+      pull-requests: write
+
+    env:
+      COMPONENT_REPO_NAME: ${{ github.event.repository.name }}
+      GIT_SHA_SHORT: ${{ needs.determine_docker_registry_and_tag.outputs.docker_tag }}
+      REF_NAME: ${{ github.ref_name }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout network-operator repo
+        uses: actions/checkout@v4
+        with:
+          repository: Mellanox/network-operator
+          token: ${{ secrets.cicd-gh-token }}
+          fetch-depth: 0
+
+      - name: Proceed only when on latest release branch
+        id: check_latest_release_branch
+        run: |
+          latest_release_branch=$(git branch -a | grep 'network-operator-' | cut -d '/' -f 3- | sort -V | tail -1)  # example: network-operator-25.10.x
+
+          echo "Latest release branch is $latest_release_branch"
+          echo "Current branch is $REF_NAME"
+
+          if [ "$REF_NAME" != "$latest_release_branch" ]; then
+            echo "Not on latest release branch. Exiting this job."
+            exit 0
+          fi
+
+          echo "IS_LATEST_RELEASE_BRANCH=true" | tee -a $GITHUB_ENV
+
+      - name: Lookup component name
+        if: steps.check_latest_release_branch.outputs.IS_LATEST_RELEASE_BRANCH == 'true'
+        id: lookup_component_name
+        run: |
+          component_name=$(yq e "to_entries | map(select(.value.sourceRepository == \"$COMPONENT_REPO_NAME\")) | .[].key" hack/release.yaml)  # example: spectrumXOperator
+          echo "COMPONENT_NAME=$component_name" | tee -a $GITHUB_ENV
+
+      - name: Update version in hack/release.yaml
+        if: steps.check_latest_release_branch.outputs.IS_LATEST_RELEASE_BRANCH == 'true'
+        run: |
+          yq -i ".$COMPONENT_NAME.version = \"${GIT_SHA_SHORT}\"" hack/release.yaml
+          echo DEBUG0  # TODO: confirm change
+          git diff     # TODO: confirm change
+
+          echo NEW_BRANCH=ci/update-$COMPONENT_NAME-version-to-$GIT_SHA_SHORT | tee -a $GITHUB_ENV
+
+      - name: Create CI branch
+        if: steps.check_latest_release_branch.outputs.IS_LATEST_RELEASE_BRANCH == 'true'
+        run: |
+        env:
+          git config user.name "nvidia-ci-cd"
+          git config user.email "svc-cloud-orch-gh@nvidia.com"
+          git checkout -b "$NEW_BRANCH"
+
+      - name: Commit and push changes
+        if: steps.check_latest_release_branch.outputs.IS_LATEST_RELEASE_BRANCH == 'true'
+        run: |
+          git add hack/release.yaml
+          git commit -m "ci: update $COMPONENT_REPO_NAME version to $GIT_SHA_SHORT"
+          git push origin HEAD  # TODO: confirm ok to push to origin (or fork remote needed)
+
+      - name: Create Pull Request
+        if: steps.check_latest_release_branch.outputs.IS_LATEST_RELEASE_BRANCH == 'true'
+        run: |
+          gh pr create \
+            --title "Update $COMPONENT_REPO_NAME version to $GIT_SHA_SHORT" \
+            --body "Automated CI update for component '$COMPONENT_REPO_NAME'." \
+            --base master \
+            --head "$NEW_BRANCH" --dry-run  # TODO: remove dry-run after development
+
