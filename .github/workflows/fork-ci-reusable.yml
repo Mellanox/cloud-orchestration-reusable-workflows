@@ -78,7 +78,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: .
+          fetch-depth: 0
       - if: needs.determine_ref.outputs.github_ref_type == 'branch'
         name: Determine docker registry and tag (when git branch)
         run: |
@@ -94,9 +94,20 @@ jobs:
         run: |
           echo DOCKER_REGISTRY=$DOCKER_REGISTRY >> $GITHUB_OUTPUT
           echo DOCKER_TAG=$DOCKER_TAG >> $GITHUB_OUTPUT
+          echo GIT_SHA_SHORT=$(git rev-parse --short HEAD) | tee -a $GITHUB_ENV
+          echo DEBUG0
+          git branch
+          echo DEBUG1
+          git branch -a
+          echo DEBUG2
+          git branch -a | grep 'almaslennikov-patch-'  # TODO: after test, change to 'network-operator-'
+          echo DEBUG3
+          git branch -a | grep 'almaslennikov-patch-' | sort -V  # TODO: after test, change to 'network-operator-'
+          exit 88
     outputs:
       docker_registry: ${{ steps.store-docker-registry-and-tag.outputs.DOCKER_REGISTRY }}
       docker_tag: ${{ steps.store-docker-registry-and-tag.outputs.DOCKER_TAG }}
+      git_sha_short: ${{ steps.store-docker-registry-and-tag.outputs.GIT_SHA_SHORT }}
 
   build_and_push_images:
     needs:
@@ -107,6 +118,7 @@ jobs:
       BUILD_PLATFORMS: linux/amd64,linux/arm64
       DOCKER_REGISTRY: ${{ needs.determine_docker_registry_and_tag.outputs.docker_registry }}
       DOCKER_TAG: ${{ needs.determine_docker_registry_and_tag.outputs.docker_tag }}
+      GIT_SHA_SHORT: ${{ needs.determine_docker_registry_and_tag.outputs.git_sha_short }}
       GOPROXY: ${{ secrets.goproxy || 'direct' }}
       BASE_IMAGE_DOCA_FULL_RT_HOST: nvcr.io/nvidia/doca/doca:3.1.0-full-rt-host
       BASE_IMAGE_DOCA_BASE_RT_HOST: nvcr.io/nvidia/doca/doca:3.1.0-base-rt-host
@@ -155,7 +167,7 @@ jobs:
           platforms: ${{ env.BUILD_PLATFORMS }}
           context: .
           file: ${{ matrix.component.dockerfile }}
-          tags: ${{ env.DOCKER_REGISTRY }}/${{ matrix.component.imageName }}:${{ env.DOCKER_TAG }}
+          tags: ${{ env.DOCKER_REGISTRY }}/${{ matrix.component.imageName }}:${{ env.DOCKER_TAG }},${{env.GIT_SHA_SHORT}},latest
           push: true
           build-args: |
             BASE_IMAGE_DOCA_FULL_RT_HOST=${{ env.BASE_IMAGE_DOCA_FULL_RT_HOST }}
