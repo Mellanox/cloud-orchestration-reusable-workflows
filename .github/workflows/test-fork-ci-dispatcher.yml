@@ -38,7 +38,7 @@ jobs:
           workflow: test-fork-ci-callee.yml
           workflow_inputs: ${{ toJSON(matrix.configurations) }}
           workflow_timeout_seconds: 1200
-      - name: Await Run ID ${{ steps.return_dispatch.outputs.run_id }}
+      - name: Await Run ID ${{ steps.return_dispatch.outputs.run_id }}  # if this step hangs, then it may indicate a syntax error in the dispatched workflow (preventing it from even starting); to debug navigate to it manually via the GH actions UI
         uses: Codex-/await-remote-run@v1.12.2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
