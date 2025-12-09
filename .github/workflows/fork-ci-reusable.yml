@@ -43,7 +43,8 @@ on:
         type: string
         required: false
       network-operator-repo:
-        description: "Network Operator repo url, can be used in tests"
+        default: "network-operator"
+        description: "Network Operator repo name, can be used as an override when running tests on reusable workflows"
         type: string
         required: false
     secrets:
@@ -62,7 +63,7 @@ on:
     outputs:
       docker-tag:
         description: "Docker tag used to build images"
-        value: ${{ jobs.determine_docker_registry_and_tag.outputs.docker_tag }}
+        value: ${{ jobs.determine_docker_registry_tag_and_check_branch.outputs.docker_tag }}
 
 jobs:
   determine_ref:
@@ -72,13 +73,15 @@ jobs:
     outputs:
       github_ref_name: ${{ inputs.ref-name || github.ref_name }}
       github_ref_type: ${{ inputs.ref-type || github.ref_type }}
-  determine_docker_registry_and_tag:
+  determine_docker_registry_tag_and_check_branch:
     needs: determine_ref
     runs-on: ubuntu-latest
+    env:
+      REF_NAME: ${{ needs.determine_ref.outputs.github_ref_name }}
     steps:
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: .
+          fetch-depth: 0
       - if: needs.determine_ref.outputs.github_ref_type == 'branch'
         name: Determine docker registry and tag (when git branch)
         run: |
@@ -88,25 +91,41 @@ jobs:
         name: Determine docker registry and tag (when git tag)
         run: |
           echo DOCKER_REGISTRY=${{ inputs.registry-internal }} | tee -a $GITHUB_ENV
-          echo DOCKER_TAG=${{ needs.determine_ref.outputs.github_ref_name }} | tee -a $GITHUB_ENV
-      - name: Store docker registry and tag for following jobs
-        id: store-docker-registry-and-tag
+          echo DOCKER_TAG=$REF_NAME | tee -a $GITHUB_ENV
+      - name: Chceck if on *latest* release branch
+        if: needs.determine_ref.outputs.github_ref_type == 'branch'
         run: |
-          echo DOCKER_REGISTRY=$DOCKER_REGISTRY >> $GITHUB_OUTPUT
-          echo DOCKER_TAG=$DOCKER_TAG >> $GITHUB_OUTPUT
+          latest_release_branch=$(git branch -ar | grep -E 'network-operator-[0-9.]+x' | cut -d '/' -f 2- | sort -V | tail -1)  # example: network-operator-25.10.x
+          echo "Latest release branch is $latest_release_branch"
+          echo "Current branch is $REF_NAME"
+
+          if [ "$REF_NAME" != "$latest_release_branch" ]; then
+            echo "Not on latest release branch. Exiting this job."
+            exit 0
+          fi
+
+          echo IS_LATEST_RELEASE_BRANCH=true | tee -a $GITHUB_ENV
+      - name: Store docker registry, tag, and branch for following jobs
+        id: store-docker-registry-tag-and-branch-check
+        run: |
+          echo DOCKER_REGISTRY=$DOCKER_REGISTRY | tee -a $GITHUB_OUTPUT
+          echo DOCKER_TAG=$DOCKER_TAG | tee -a $GITHUB_OUTPUT
+          echo IS_LATEST_RELEASE_BRANCH=$IS_LATEST_RELEASE_BRANCH | tee -a $GITHUB_OUTPUT
     outputs:
-      docker_registry: ${{ steps.store-docker-registry-and-tag.outputs.DOCKER_REGISTRY }}
-      docker_tag: ${{ steps.store-docker-registry-and-tag.outputs.DOCKER_TAG }}
+      docker_registry: ${{ steps.store-docker-registry-tag-and-branch-check.outputs.DOCKER_REGISTRY }}
+      docker_tag: ${{ steps.store-docker-registry-tag-and-branch-check.outputs.DOCKER_TAG }}
+      is_latest_release_branch: ${{ steps.store-docker-registry-tag-and-branch-check.outputs.IS_LATEST_RELEASE_BRANCH }}
 
   build_and_push_images:
     needs:
       - determine_ref
-      - determine_docker_registry_and_tag
+      - determine_docker_registry_tag_and_check_branch
     runs-on: linux-amd64-cpu4
     env:
+      REF_NAME: ${{ needs.determine_ref.outputs.github_ref_name }}
       BUILD_PLATFORMS: linux/amd64,linux/arm64
-      DOCKER_REGISTRY: ${{ needs.determine_docker_registry_and_tag.outputs.docker_registry }}
-      DOCKER_TAG: ${{ needs.determine_docker_registry_and_tag.outputs.docker_tag }}
+      DOCKER_REGISTRY: ${{ needs.determine_docker_registry_tag_and_check_branch.outputs.docker_registry }}
+      DOCKER_TAG: ${{ needs.determine_docker_registry_tag_and_check_branch.outputs.docker_tag }}
       GOPROXY: ${{ secrets.goproxy || 'direct' }}
       BASE_IMAGE_DOCA_FULL_RT_HOST: nvcr.io/nvidia/doca/doca:3.2.0-full-rt-host
       BASE_IMAGE_DOCA_BASE_RT_HOST: nvcr.io/nvidia/doca/doca:3.2.0-base-rt-host
@@ -140,7 +159,7 @@ jobs:
           echo "BUILD_PLATFORMS=$NEW_BUILD_PLATFORMS" >> $GITHUB_ENV
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.determine_ref.outputs.github_ref_name }}
+          ref: ${{ env.github_ref_name }}
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
         with:
@@ -162,3 +181,64 @@ jobs:
             BASE_IMAGE_DOCA_BASE_RT_HOST=${{ env.BASE_IMAGE_DOCA_BASE_RT_HOST }}
             BASE_IMAGE_GO_DISTROLESS_DEV=${{ env.BASE_IMAGE_GO_DISTROLESS_DEV }}
             BASE_IMAGE_GO_DISTROLESS=${{ env.BASE_IMAGE_GO_DISTROLESS }}
+
+  update_component_version_in_network_operator:
+    needs:
+      - determine_ref
+      - determine_docker_registry_tag_and_check_branch
+      - build_and_push_images
+    if: needs.determine_docker_registry_tag_and_check_branch.outputs.is_latest_release_branch == 'true'
+    runs-on: ubuntu-latest
+    env:
+      GIT_SHA_SHORT: ${{ needs.determine_docker_registry_tag_and_check_branch.outputs.docker_tag }}
+      REF_NAME: ${{ github.ref_name }}
+      GH_TOKEN: ${{ secrets.cicd-gh-token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.cicd-gh-token }}
+          repository: Mellanox/${{ inputs.network-operator-repo }}
+          ref: master
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Prepare component name(s)
+        run: |
+          component_names=$(echo '${{ inputs.components }}' | jq -r '.[].name' | tr '\n' ' ')
+          test -n "$component_names"  # check not empty
+          echo COMPONENT_NAMES=$component_names | tee -a $GITHUB_ENV
+      - name: Update version in hack/release.yaml
+        id: update-hack-release-yaml
+        run: |
+          for component_name in $COMPONENT_NAMES; do
+            echo "Updating version for $component_name"
+            yq -i ".$component_name.version = \"${GIT_SHA_SHORT}\"" hack/release.yaml
+          done
+          make release-build
+
+          if git diff --exit-code --color=always; then
+            echo UPDATE_BRANCH= | tee -a $GITHUB_ENV
+          else
+            echo UPDATE_BRANCH=ci/update-${{ github.event.repository.name }}-version-to-$GIT_SHA_SHORT | tee -a $GITHUB_ENV
+          fi
+      - name: Create CI branch
+        if: env.UPDATE_BRANCH != ''
+        run: |
+          git config user.name "nvidia-ci-cd"
+          git config user.email "svc-cloud-orch-gh@nvidia.com"
+          git checkout -b $UPDATE_BRANCH
+      - name: Commit and push changes
+        if: env.UPDATE_BRANCH != ''
+        run: |
+          git diff --color=always
+          git add .
+          git commit -sm "ci: update ${{ github.event.repository.name }} version to $GIT_SHA_SHORT"
+          ${{ env.TEST_RUN == 'true' && 'echo TEST_RUN: would have run: ' || '' }}git push -u origin $UPDATE_BRANCH
+      - name: Create Pull Request
+        if: env.UPDATE_BRANCH != ''
+        run: |
+          gh pr create ${{ env.TEST_RUN == 'true' && '--dry-run' || '' }} \
+            --head "$UPDATE_BRANCH" \
+            --base master \
+            --title "ci: update ${{ github.event.repository.name }} version to $GIT_SHA_SHORT" \
+            --body "Automated CI update for component '${{ github.event.repository.name }}', created by [GitHub actions reusable workflow run $GITHUB_RUN_ID]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)." \
+            --reviewer e0ne --reviewer almaslennikov --reviewer rollandf --reviewer heyvister1

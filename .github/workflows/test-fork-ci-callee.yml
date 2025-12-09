@@ -70,7 +70,7 @@ jobs:
     secrets:
       registry-username: ${{ github.repository_owner }}
       registry-token: ${{ secrets.GITHUB_TOKEN }}
-      cicd-gh-token: ${{ secrets.GITHUB_TOKEN }}
+      cicd-gh-token: ${{ secrets.GH_TOKEN_NVIDIA_CI_CD }}
       goproxy: "direct"
 
   validate-docker-images-built:
@@ -94,35 +94,35 @@ jobs:
             echo "Error: Docker tag was not generated" >&2
             exit 1
           fi
-          
+
           # Define the images to check based on the components from the workflow
           IMAGES=(
             "$DOCKER_REGISTRY/cloud-orchestration-reusable-workflows:$DOCKER_TAG"
             "$DOCKER_REGISTRY/another-cloud-orchestration-reusable-workflows:$DOCKER_TAG"
           )
-          
+
           echo "Verifying built images with docker manifest..."
           for image in "${IMAGES[@]}"; do
             echo "Checking image: $image"
-            
+
             # Check if the image manifest exists
             if ! docker manifest inspect "$image" > /dev/null 2>&1; then
               echo "Error: Image $image does not exist or cannot be accessed" >&2
               exit 1
             fi
-            
+
             # Get the manifest and check platforms
             MANIFEST=$(docker manifest inspect "$image" 2>/dev/null)
             if [ $? -ne 0 ]; then
               echo "Error: Failed to inspect manifest for $image" >&2
               exit 1
             fi
-            
+
             # Extract platforms from manifest
             PLATFORMS=$(echo "$MANIFEST" | jq -r '.manifests[]?.platform | select(. != null) | "\(.os)/\(.architecture)"' | sort | tr '\n' ',' | sed 's/,$//')
-            
+
             echo "Found platforms for $image: $PLATFORMS"
-            
+
             # Check if expected platforms are present
             IFS=',' read -ra EXPECTED_ARRAY <<< "$EXPECTED_PLATFORMS"
             for expected_platform in "${EXPECTED_ARRAY[@]}"; do
@@ -132,11 +132,79 @@ jobs:
                 exit 1
               fi
             done
-            
+
             echo "Successfully verified image $image with platforms: $PLATFORMS"
           done
-          
+
           echo "All docker images successfully verified!"
+
+  validate-pr-with-updated-version-open:
+    if: inputs.ref_type == 'branch'
+    needs: call-reusable-ci-fork-workflow
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Validate that a PR with updated versions was opened
+        id: validate_pr_open
+        run: |
+          OUTPUT=$(gh pr list --repo ${{ github.repository }} --search="state:open in:title ${{ needs.call-reusable-ci-fork-workflow.outputs.docker-tag }}" --json headRefName,number)
+
+          # Validate that the output contains exactly one element
+          if [ "$(echo "$OUTPUT" | jq 'length')" -eq 1 ]; then
+            HEAD_REF_NAME=$(echo "$OUTPUT" | jq -r '.[0].headRefName')
+            PR_NUMBER=$(echo "$OUTPUT" | jq -r '.[0].number')
+            echo "head_ref_name=$HEAD_REF_NAME" >> $GITHUB_OUTPUT
+            echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          else
+            echo "Error: Output does not contain exactly 1 element." >&2
+            exit 1
+          fi
+        shell: bash
+    outputs:
+      head-ref-name: ${{ steps.validate_pr_open.outputs.HEAD_REF_NAME }}
+      pr-number: ${{ steps.validate_pr_open.outputs.PR_NUMBER }}
+
+  validate-pr-changes:
+    if: inputs.ref_type == 'branch'
+    needs:
+      - call-reusable-ci-fork-workflow
+      - validate-pr-with-updated-version-open
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate-pr-with-updated-version-open.outputs.head-ref-name }}
+      - name: Verify version changes in PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DOCKER_TAG: ${{ needs.call-reusable-ci-fork-workflow.outputs.docker-tag }}
+          PR_NUMBER: ${{ needs.validate-pr-with-updated-version-open.outputs.pr-number }}
+          DOCKER_REGISTRY: ghcr.io/mellanox
+          RELEASE_FILE: hack/release.yaml
+        run: |
+          echo "Validating that PR description contains the current workflow run url..."
+          CURRENT_RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          PR_BODY=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json body -q '.body')
+          if ! echo "$PR_BODY" | grep -Fq "$CURRENT_RUN_URL"; then
+            echo "Error: PR body does not contain the current workflow run URL ($CURRENT_RUN_URL)" >&2
+            exit 1
+          fi
+
+          make check-release-build
+
+          echo "Validating changes in release.yaml..."
+          OPERATOR_VERSION=$(yq '.nicConfigurationOperator.version' $RELEASE_FILE)
+          DAEMON_VERSION=$(yq '.nicConfigurationConfigDaemon.version' $RELEASE_FILE)
+          echo "Found operator version $OPERATOR_VERSION and daemon version $DAEMON_VERSION"
+
+          if [ "$OPERATOR_VERSION" != "$DOCKER_TAG" ]; then \
+              echo "Error: NicConfigurationOperator version is not set correctly in $RELEASE_FILE"; exit 1; \
+          fi
+
+          if [ "$DAEMON_VERSION" != "$DOCKER_TAG" ]; then \
+              echo "Error: NicConfigurationConfigDaemon version is not set correctly in $RELEASE_FILE"; exit 1; \
+          fi
 
   cleanup:
     if: always()
@@ -145,6 +213,8 @@ jobs:
     needs:
       - create-test-environment
       - validate-docker-images-built
+      - validate-pr-with-updated-version-open
+      - validate-pr-changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -152,7 +222,19 @@ jobs:
         env:
           BRANCH: ${{ needs.create-test-environment.outputs.branch }}
           TAG: ${{ needs.create-test-environment.outputs.tag }}
+          PR_BRANCH: ${{ needs.validate-pr-with-updated-version-open.outputs.head-ref-name }}
+          PR_NUMBER: ${{ needs.validate-pr-with-updated-version-open.outputs.pr-number }}
         run: |
+          if [ -n "$PR_NUMBER" ]; then
+            echo "Closing PR #$PR_NUMBER..."
+            gh pr close "$PR_NUMBER"
+          fi
+
+          if [ -n "$PR_BRANCH" ]; then
+          echo "Deleting pr branch $PR_BRANCH from origin..."
+          git push origin --delete "$PR_BRANCH"
+          fi
+
           if [ -n "$BRANCH" ]; then
             echo "Deleting branch $BRANCH from origin..."
             git push origin --delete "$BRANCH"
