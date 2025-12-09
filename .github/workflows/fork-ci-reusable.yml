@@ -43,7 +43,8 @@ on:
         type: string
         required: false
       network-operator-repo:
-        description: "Network Operator repo url, can be used in tests"
+        default: "network-operator"
+        description: "Network Operator repo name, can be used as an override when running tests on reusable workflows"
         type: string
         required: false
     secrets:
@@ -195,13 +196,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: Mellanox/network-operator
           token: ${{ secrets.cicd-gh-token }}
+          repository: Mellanox/${{ inputs.network-operator-repo }}
+          ref: master
           persist-credentials: true
           fetch-depth: 0
-      - name: Lookup component name(s)
+      - name: Prepare component name(s)
         run: |
-          component_names=$(echo "${{ inputs.components }}" | jq -r '.[].name' | tr '\n' ' ')
+          component_names=$(echo '${{ inputs.components }}' | jq -r '.[].name' | tr '\n' ' ')
           test -n "$component_names"  # check not empty
           echo COMPONENT_NAMES=$component_names | tee -a $GITHUB_ENV
       - name: Update version in hack/release.yaml
@@ -211,6 +213,7 @@ jobs:
             echo "Updating version for $component_name"
             yq -i ".$component_name.version = \"${GIT_SHA_SHORT}\"" hack/release.yaml
           done
+          make release-build
 
           if git diff --exit-code --color=always; then
             echo UPDATE_BRANCH= | tee -a $GITHUB_ENV
@@ -227,8 +230,8 @@ jobs:
         if: env.UPDATE_BRANCH != ''
         run: |
           git diff --color=always
-          git add hack/release.yaml
-          git commit -m "ci: update ${{ github.event.repository.name }} version to $GIT_SHA_SHORT"
+          git add .
+          git commit -sm "ci: update ${{ github.event.repository.name }} version to $GIT_SHA_SHORT"
           ${{ env.TEST_RUN == 'true' && 'echo TEST_RUN: would have run: ' || '' }}git push -u origin $UPDATE_BRANCH
       - name: Create Pull Request
         if: env.UPDATE_BRANCH != ''
