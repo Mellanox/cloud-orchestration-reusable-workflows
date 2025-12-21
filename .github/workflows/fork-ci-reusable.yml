@@ -193,6 +193,7 @@ jobs:
       GIT_SHA_SHORT: ${{ needs.determine_docker_registry_tag_and_check_branch.outputs.docker_tag }}
       REF_NAME: ${{ github.ref_name }}
       GH_TOKEN: ${{ secrets.cicd-gh-token }}
+      TEST_RUN: false
     steps:
       - uses: actions/checkout@v4
         with:
