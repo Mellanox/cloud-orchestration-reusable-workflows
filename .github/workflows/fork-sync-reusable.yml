@@ -11,6 +11,11 @@ on:
         description: "Owner of the upstream repo on Github"
         required: true
         type: string
+      upstream-repo:
+        description: "Name of the upstream repo on Github"
+        required: false
+        type: string
+        default: ${{ github.event.repository.name }}
       service-account-username:
         description: "Name of the GH service account to push changes"
         type: string
@@ -62,7 +67,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.gh_token }}  # classic personal access token permissions: `repo:*,workflow:*`
         run: |
-          gh repo sync ${{ github.repository }} --source ${{ inputs.upstream-owner }}/${{ github.event.repository.name }} --branch ${{ inputs.default-branch }}
+          gh repo sync ${{ github.repository }} --source ${{ inputs.upstream-owner }}/${{ inputs.upstream-repo }} --branch ${{ inputs.default-branch }}
 
   sync-latest-release-branch:
     runs-on: ubuntu-latest
@@ -76,7 +81,7 @@ jobs:
           token: ${{ secrets.gh_token }}
       - name: Add upstream and fetch
         run: |
-          git remote add upstream https://github.com/${{ inputs.upstream-owner }}/${{ github.event.repository.name }}.git
+          git remote add upstream https://github.com/${{ inputs.upstream-owner }}/${{ inputs.upstream-repo }}.git
           git fetch upstream ${{ inputs.default-branch }}
       - name: Rebase onto upstream branch
         run: |
