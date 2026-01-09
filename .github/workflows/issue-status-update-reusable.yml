@@ -1,0 +1,74 @@
+name: Reusable CI Status Issue Update
+
+on:
+  workflow_call:
+    inputs:
+      workflow-name:
+        description: "Name of the workflow to track"
+        type: string
+        required: true
+      is-passing:
+        description: "Whether the workflow is passing (true) or failing (false)"
+        type: boolean
+        required: true
+      workflow-run-url:
+        description: "URL to the workflow run"
+        type: string
+        required: true
+    secrets:
+      gh-token:
+        description: "GitHub token with issues write permission"
+        required: true
+
+jobs:
+  update-issue-status:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find or create issue and update label
+        env:
+          GH_TOKEN: ${{ secrets.gh-token }}
+          WORKFLOW_NAME: ${{ inputs.workflow-name }}
+          IS_PASSING: ${{ inputs.is-passing }}
+          WORKFLOW_RUN_URL: ${{ inputs.workflow-run-url }}
+        run: |
+          ISSUE_TITLE="[CI] Workflow status: $WORKFLOW_NAME"
+
+          if [[ "$IS_PASSING" == "true" ]]; then
+            LABEL_NAME="Passing"
+            LABEL_COLOR="0e8a16"
+            OLD_LABEL="Failing"
+          else
+            LABEL_NAME="Failing"
+            LABEL_COLOR="d73a4a"
+            OLD_LABEL="Passing"
+          fi
+
+          # Ensure label exists
+          if ! gh label list --repo "$GITHUB_REPOSITORY" --json name | jq -e ".[] | select(.name == \"$LABEL_NAME\")" > /dev/null 2>&1; then
+            echo "Creating label '$LABEL_NAME'"
+            gh label create "$LABEL_NAME" --repo "$GITHUB_REPOSITORY" --color "$LABEL_COLOR" --force || true
+          fi
+
+          ISSUE_BODY=$(printf "This issue tracks the CI status for workflow **%s**.\n\n**Latest run:** %s\n\n_This issue is automatically created and updated by CI workflows._" "$WORKFLOW_NAME" "$WORKFLOW_RUN_URL")
+
+          # Find existing issue by title
+          issue_number=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title $ISSUE_TITLE" --json number,title \
+            | jq -r ".[] | select(.title == \"$ISSUE_TITLE\") | .number" \
+            | head -n 1)
+
+          if [ -z "$issue_number" ]; then
+            echo "Issue not found, creating new issue with title: $ISSUE_TITLE"
+            issue_number=$(gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "$ISSUE_TITLE" \
+              --body "$ISSUE_BODY" \
+              --label "$LABEL_NAME" \
+              | grep -oE '[0-9]+$')
+            echo "Created issue #$issue_number"
+          else
+            echo "Found existing issue #$issue_number"
+            # Remove old status label
+            gh issue edit "$issue_number" --repo "$GITHUB_REPOSITORY" --remove-label "$OLD_LABEL" 2>/dev/null || true
+            # Add the new label and update body
+            gh issue edit "$issue_number" --repo "$GITHUB_REPOSITORY" --add-label "$LABEL_NAME" --body "$ISSUE_BODY"
+            echo "Updated issue #$issue_number with label '$LABEL_NAME'"
+          fi

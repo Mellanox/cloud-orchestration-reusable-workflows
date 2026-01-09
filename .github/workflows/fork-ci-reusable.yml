@@ -227,3 +227,18 @@ jobs:
             --title "ci: update ${{ github.event.repository.name }} version to $GIT_SHA_SHORT (of branch $REF_NAME)" \
             --body "Automated CI update for component '${{ github.event.repository.name }}', created by [GitHub actions reusable workflow run $GITHUB_RUN_ID]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID) for release branch $REF_NAME." \
             --reviewer e0ne --reviewer almaslennikov --reviewer rollandf --reviewer heyvister1
+
+  update-issue-status:
+    if: always()
+    needs:
+      - determine_ref
+      - determine_docker_registry_and_tag
+      - build_and_push_images
+      - update_component_version_in_network_operator
+    uses: ./.github/workflows/issue-status-update-reusable.yml
+    with:
+      workflow-name: fork-ci
+      is-passing: ${{ github.job.status != 'failure' }}
+      workflow-run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    secrets:
+      gh-token: ${{ secrets.cicd-gh-token }}
