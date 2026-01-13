@@ -100,7 +100,7 @@ jobs:
       - sync-latest-release-branch
     with:
       workflow-name: fork-sync
-      is-passing: ${{ github.job.status != 'failure' }}
+      is-passing: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
       workflow-run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     secrets:
       gh-token: ${{ secrets.gh_token }}
