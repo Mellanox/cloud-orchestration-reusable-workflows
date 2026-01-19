@@ -71,7 +71,6 @@ jobs:
       registry-username: ${{ github.repository_owner }}
       registry-token: ${{ secrets.GITHUB_TOKEN }}
       cicd-gh-token: ${{ secrets.GH_TOKEN_NVIDIA_CI_CD }}
-      goproxy: "direct"
 
   validate-docker-images-built:
     needs: call-reusable-ci-fork-workflow
