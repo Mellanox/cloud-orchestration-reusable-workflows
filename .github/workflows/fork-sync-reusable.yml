@@ -81,15 +81,11 @@ jobs:
           ref: ${{ needs.lookup-most-recent-release-branch.outputs.most_recent_release_branch }}
           fetch-depth: 0
           token: ${{ secrets.gh_token }}
-      - name: Add upstream and fetch
-        run: |
-          git remote add upstream https://github.com/${{ inputs.upstream-owner }}/${{ inputs.upstream-repo }}.git
-          git fetch upstream ${{ inputs.default-branch }}
       - name: Rebase onto upstream branch
         run: |
           git config user.name ${{inputs.service-account-username || 'github-actions[bot]'}}
           git config user.email ${{inputs.service-account-email || 'github-actions[bot]@users.noreply.github.com'}}
-          git rebase upstream/${{ inputs.default-branch }}
+          git rebase origin/${{ inputs.default-branch }}
       - name: Push rebased branch
         run: |
           git push origin ${{ needs.lookup-most-recent-release-branch.outputs.most_recent_release_branch }} --force-with-lease
