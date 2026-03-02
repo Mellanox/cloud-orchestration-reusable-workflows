@@ -114,8 +114,8 @@ jobs:
       DOCKER_TAG: ${{ needs.determine_docker_registry_and_tag.outputs.docker_tag }}
       BASE_IMAGE_DOCA_FULL_RT_HOST: nvcr.io/nvstaging/doca/doca:3.3.0109-full-rt-host
       BASE_IMAGE_DOCA_BASE_RT_HOST: nvcr.io/nvstaging/doca/doca:3.3.0109-base-rt-host
-      BASE_IMAGE_GO_DISTROLESS_DEV: nvcr.io/nvidia/distroless/go:v4.0.1-dev
-      BASE_IMAGE_GO_DISTROLESS: nvcr.io/nvidia/distroless/go:v4.0.1
+      BASE_IMAGE_GO_DISTROLESS_DEV: nvcr.io/nvidia/distroless/go:v4.0.2-dev
+      BASE_IMAGE_GO_DISTROLESS: nvcr.io/nvidia/distroless/go:v4.0.2
     strategy:
       matrix:
         component: ${{ fromJSON(inputs.components) }}
