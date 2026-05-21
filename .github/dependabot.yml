@@ -16,6 +16,6 @@ updates:
     commit-message:
       prefix: "chore:"
     ignore:
-      - dependency-name: "nvcr.io/nvstaging/doca/doca"
+      - dependency-name: "nvstaging/doca/doca"
         versions:
           - ">=3.5"
