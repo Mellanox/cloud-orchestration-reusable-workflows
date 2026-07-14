@@ -20,3 +20,22 @@ updates:
         update-types:
           - "version-update:semver-major"
           - "version-update:semver-minor"
+  # Docker images
+  - package-ecosystem: "docker"
+    directory: "/"
+    registries:
+      - nvcr
+    schedule:
+      interval: "daily"
+    commit-message:
+      prefix: "chore:"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
+      - dependency-name: '*'
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+    target-branch: network-operator-26.4.x
