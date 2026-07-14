@@ -11,6 +11,10 @@ on:
       ref_type:
         description: "Type of ref to use (tag or branch)"
         required: true
+      has_release_tag:
+        description: "Whether to add a network-operator-* tag to the branch commit"
+        required: false
+        default: "false"
       distinct_id:
         description: "Unique identifier for the run"
 
@@ -26,9 +30,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Configure git author
+        run: |
+          git config user.name "nvidia-ci-cd"
+          git config user.email "svc-cloud-orch-gh@nvidia.com"
       - if: inputs.ref_type == 'tag'
         name: Create release tag and branch
         run: |
+          git commit --allow-empty -m "test: isolate ${{ inputs.ref_name }}"
           git tag ${{ inputs.ref_name }}
           git push origin ${{ inputs.ref_name }} -f
           # We need to cut the release branch from the 'network-operator' master branch
@@ -43,8 +52,15 @@ jobs:
         name: Create release branch
         run: |
           git checkout -b ${{ inputs.ref_name }}
+          git commit --allow-empty -m "test: isolate ${{ inputs.ref_name }}"
           git push origin ${{ inputs.ref_name }} -f
           echo BRANCH=${{ inputs.ref_name }} | tee -a $GITHUB_ENV
+          if [ "${{ inputs.has_release_tag }}" = "true" ]; then
+            release_tag="${{ inputs.ref_name }}-tagged"
+            git tag "$release_tag"
+            git push origin "$release_tag" -f
+            echo TAG=$release_tag | tee -a $GITHUB_ENV
+          fi
       - name: Store branch and tag
         id: store-tag-branch
         run: |
@@ -73,6 +89,7 @@ jobs:
       cicd-gh-token: ${{ secrets.GH_TOKEN_NVIDIA_CI_CD }}
 
   validate-docker-images-built:
+    if: inputs.ref_type == 'tag' || inputs.has_release_tag != 'true'
     needs: call-reusable-ci-fork-workflow
     runs-on: ubuntu-latest
     env:
@@ -138,7 +155,7 @@ jobs:
           echo "All docker images successfully verified!"
 
   validate-pr-with-updated-version-open:
-    if: inputs.ref_type == 'branch'
+    if: inputs.ref_type == 'branch' && inputs.has_release_tag != 'true'
     needs: call-reusable-ci-fork-workflow
     runs-on: ubuntu-latest
     env:
@@ -165,7 +182,7 @@ jobs:
       pr-number: ${{ steps.validate_pr_open.outputs.PR_NUMBER }}
 
   validate-pr-changes:
-    if: inputs.ref_type == 'branch'
+    if: inputs.ref_type == 'branch' && inputs.has_release_tag != 'true'
     needs:
       - call-reusable-ci-fork-workflow
       - validate-pr-with-updated-version-open
@@ -189,6 +206,14 @@ jobs:
             echo "Error: PR body does not contain the current workflow run URL ($CURRENT_RUN_URL)" >&2
             exit 1
           fi
+          if ! echo "$PR_BODY" | grep -Fq 'Previous version in `hack/release.yaml`: `v0.1.18`'; then
+            echo "Error: PR body does not contain the previous component version" >&2
+            exit 1
+          fi
+          if ! echo "$PR_BODY" | grep -Fq 'Commits from `v0.1.18` to'; then
+            echo "Error: PR body does not contain the commit diff section" >&2
+            exit 1
+          fi
 
           make check-release-build
 
@@ -205,6 +230,21 @@ jobs:
               echo "Error: NicConfigurationConfigDaemon version is not set correctly in $RELEASE_FILE"; exit 1; \
           fi
 
+  validate-no-pr-opened-for-tagged-branch:
+    if: inputs.ref_type == 'branch' && inputs.has_release_tag == 'true'
+    needs: call-reusable-ci-fork-workflow
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Validate that no PR was opened for a branch commit that already has a release tag
+        run: |
+          OUTPUT=$(gh pr list --repo ${{ github.repository }} --search="state:open in:title ${{ needs.call-reusable-ci-fork-workflow.outputs.docker-tag }}" --json number)
+          if [ "$(echo "$OUTPUT" | jq 'length')" -ne 0 ]; then
+            echo "Error: expected no update PR for tagged branch commit, found: $OUTPUT" >&2
+            exit 1
+          fi
+
   cleanup:
     if: always()
     env:
@@ -214,6 +254,7 @@ jobs:
       - validate-docker-images-built
       - validate-pr-with-updated-version-open
       - validate-pr-changes
+      - validate-no-pr-opened-for-tagged-branch
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -226,20 +267,20 @@ jobs:
         run: |
           if [ -n "$PR_NUMBER" ]; then
             echo "Closing PR #$PR_NUMBER..."
-            gh pr close "$PR_NUMBER"
+            gh pr close "$PR_NUMBER" || true
           fi
 
           if [ -n "$PR_BRANCH" ]; then
-          echo "Deleting pr branch $PR_BRANCH from origin..."
-          git push origin --delete "$PR_BRANCH"
+            echo "Deleting pr branch $PR_BRANCH from origin..."
+            git push origin --delete "$PR_BRANCH" || true
           fi
 
           if [ -n "$BRANCH" ]; then
             echo "Deleting branch $BRANCH from origin..."
-            git push origin --delete "$BRANCH"
+            git push origin --delete "$BRANCH" || true
           fi
           if [ -n "$TAG" ]; then
             echo "Deleting tag $TAG from origin..."
-            git push origin --delete refs/tags/$TAG
+            git push origin --delete refs/tags/$TAG || true
           fi
           echo "Test completed successfully - no cleanup needed since no test resources were created"

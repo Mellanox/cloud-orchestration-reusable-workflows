@@ -78,6 +78,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ env.REF_NAME }}
           fetch-depth: 0
       - if: needs.determine_ref.outputs.github_ref_type == 'branch'
         name: Determine docker registry and tag (when git branch)
@@ -92,16 +93,61 @@ jobs:
       - name: Store docker registry and tag for following jobs
         id: store-docker-registry-and-tag
         run: |
+          echo GIT_SHA=$(git rev-parse HEAD) | tee -a $GITHUB_OUTPUT
           echo DOCKER_REGISTRY=$DOCKER_REGISTRY | tee -a $GITHUB_OUTPUT
           echo DOCKER_TAG=$DOCKER_TAG | tee -a $GITHUB_OUTPUT
     outputs:
+      git_sha: ${{ steps.store-docker-registry-and-tag.outputs.GIT_SHA }}
       docker_registry: ${{ steps.store-docker-registry-and-tag.outputs.DOCKER_REGISTRY }}
       docker_tag: ${{ steps.store-docker-registry-and-tag.outputs.DOCKER_TAG }}
 
+  source_release_tag_guard:
+    needs:
+      - determine_ref
+    runs-on: ubuntu-latest
+    outputs:
+      has_release_tag: ${{ steps.check-release-tags.outputs.HAS_RELEASE_TAG }}
+      release_tags: ${{ steps.check-release-tags.outputs.RELEASE_TAGS }}
+    steps:
+      - if: needs.determine_ref.outputs.github_ref_type != 'tag'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.determine_ref.outputs.github_ref_name }}
+          fetch-depth: 0
+      - name: Check whether source commit already has a Network Operator release tag
+        id: check-release-tags
+        run: |
+          if [ "${{ needs.determine_ref.outputs.github_ref_type }}" = "tag" ]; then
+            echo "Source release tag guard is skipped for tag refs."
+            echo HAS_RELEASE_TAG=false | tee -a "$GITHUB_OUTPUT"
+            echo RELEASE_TAGS= | tee -a "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git fetch --force --tags origin
+          release_tags=$(git tag --points-at HEAD --list 'network-operator-*' | sort)
+
+          if [ -n "$release_tags" ]; then
+            echo "Source commit already has Network Operator release tag(s):"
+            echo "$release_tags"
+            echo HAS_RELEASE_TAG=true | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "Source commit does not have Network Operator release tags."
+            echo HAS_RELEASE_TAG=false | tee -a "$GITHUB_OUTPUT"
+          fi
+
+          {
+            echo 'RELEASE_TAGS<<EOF'
+            echo "$release_tags"
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+
   build_and_push_images:
+    if: needs.determine_ref.outputs.github_ref_type == 'tag' || needs.source_release_tag_guard.outputs.has_release_tag != 'true'
     needs:
       - determine_ref
       - determine_docker_registry_and_tag
+      - source_release_tag_guard
     runs-on: linux-amd64-cpu4
     permissions:
       contents: read
@@ -144,7 +190,7 @@ jobs:
           echo "BUILD_PLATFORMS=$NEW_BUILD_PLATFORMS" >> $GITHUB_ENV
       - uses: actions/checkout@v4
         with:
-          ref: ${{ env.github_ref_name }}
+          ref: ${{ env.REF_NAME }}
       - name: Setup Go Proxy
         id: setup-go-proxy
         uses: nv-gha-runners/setup-artifactory-go-proxy@main
@@ -177,12 +223,14 @@ jobs:
     needs:
       - determine_ref
       - determine_docker_registry_and_tag
+      - source_release_tag_guard
       - build_and_push_images
-    if: needs.determine_ref.outputs.github_ref_type == 'branch'
+    if: needs.determine_ref.outputs.github_ref_type == 'branch' && needs.source_release_tag_guard.outputs.has_release_tag != 'true'
     runs-on: ubuntu-latest
     env:
+      GIT_SHA_FULL: ${{ needs.determine_docker_registry_and_tag.outputs.git_sha }}
       GIT_SHA_SHORT: ${{ needs.determine_docker_registry_and_tag.outputs.docker_tag }}
-      REF_NAME: ${{ github.ref_name }}
+      REF_NAME: ${{ needs.determine_ref.outputs.github_ref_name }}
       GH_TOKEN: ${{ secrets.cicd-gh-token }}
     steps:
       - uses: actions/checkout@v4
@@ -200,10 +248,17 @@ jobs:
       - name: Update version in hack/release.yaml
         id: update-hack-release-yaml
         run: |
+          component_version_file="$RUNNER_TEMP/component-versions.env"
+          : > "$component_version_file"
+
           for component_name in $COMPONENT_NAMES; do
+            old_version=$(yq -r ".$component_name.version" hack/release.yaml)
+            echo "$component_name=$old_version" >> "$component_version_file"
             echo "Updating version for $component_name"
             yq -i ".$component_name.version = \"${GIT_SHA_SHORT}\"" hack/release.yaml
           done
+          echo COMPONENT_VERSION_FILE=$component_version_file | tee -a $GITHUB_ENV
+
           make release-build
 
           if git diff --exit-code --color=always; then
@@ -211,6 +266,53 @@ jobs:
           else
             echo UPDATE_BRANCH=ci/update-${{ github.event.repository.name }}-version-to-$GIT_SHA_SHORT | tee -a $GITHUB_ENV
           fi
+      - name: Prepare pull request body
+        if: env.UPDATE_BRANCH != ''
+        run: |
+          pr_body_file="$RUNNER_TEMP/pr-body.md"
+
+          {
+            echo "Automated CI update for component '${{ github.event.repository.name }}', created by [GitHub actions reusable workflow run $GITHUB_RUN_ID]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID) for release branch $REF_NAME."
+            echo
+            echo "## Component updates"
+            while IFS='=' read -r component_name old_version; do
+              echo
+              echo "### $component_name"
+              echo
+              echo "- Previous version in \`hack/release.yaml\`: \`$old_version\`"
+              echo "- New version: \`$GIT_SHA_SHORT\`"
+              echo
+              echo "Commits from \`$old_version\` to \`$GIT_SHA_SHORT\`:"
+
+              if compare_json=$(gh api "repos/$GITHUB_REPOSITORY/compare/$old_version...$GIT_SHA_FULL" 2>/dev/null); then
+                commit_count=$(echo "$compare_json" | jq '.commits | length')
+                if [ "$commit_count" -eq 0 ]; then
+                  echo "- No commits found in this range."
+                else
+                  echo "$compare_json" | jq -r '.commits[] | @base64' | while read -r commit_data; do
+                    commit_json=$(echo "$commit_data" | base64 --decode)
+                    sha=$(echo "$commit_json" | jq -r '.sha')
+                    short_sha=$(echo "$sha" | cut -c1-7)
+                    subject=$(echo "$commit_json" | jq -r '.commit.message | split("\n")[0]')
+                    commit_url=$(echo "$commit_json" | jq -r '.html_url')
+                    pr_json=$(gh api -H "Accept: application/vnd.github+json" "repos/$GITHUB_REPOSITORY/commits/$sha/pulls" 2>/dev/null || echo '[]')
+                    pr_url=$(echo "$pr_json" | jq -r '.[0].html_url // ""')
+                    pr_number=$(echo "$pr_json" | jq -r '.[0].number // ""')
+
+                    if [ -n "$pr_url" ]; then
+                      echo "- [$short_sha]($commit_url) $subject ([#$pr_number]($pr_url))"
+                    else
+                      echo "- [$short_sha]($commit_url) $subject"
+                    fi
+                  done
+                fi
+              else
+                echo "- Unable to generate a commit diff for this range in \`$GITHUB_REPOSITORY\`."
+              fi
+            done < "$COMPONENT_VERSION_FILE"
+          } > "$pr_body_file"
+
+          echo PR_BODY_FILE=$pr_body_file | tee -a $GITHUB_ENV
       - name: Create CI branch
         if: env.UPDATE_BRANCH != ''
         run: |
@@ -231,14 +333,15 @@ jobs:
             --head "$UPDATE_BRANCH" \
             --base master \
             --title "ci: update ${{ github.event.repository.name }} version to $GIT_SHA_SHORT (of branch $REF_NAME)" \
-            --body "Automated CI update for component '${{ github.event.repository.name }}', created by [GitHub actions reusable workflow run $GITHUB_RUN_ID]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID) for release branch $REF_NAME." \
+            --body-file "$PR_BODY_FILE" \
             --reviewer e0ne --reviewer almaslennikov --reviewer rollandf --reviewer heyvister1
 
   update-issue-status:
-    if: always()
+    if: ${{ always() && !(needs.determine_ref.outputs.github_ref_type != 'tag' && needs.source_release_tag_guard.outputs.has_release_tag == 'true') }}
     needs:
       - determine_ref
       - determine_docker_registry_and_tag
+      - source_release_tag_guard
       - build_and_push_images
       - update_component_version_in_network_operator
     uses: ./.github/workflows/issue-status-update-reusable.yml
