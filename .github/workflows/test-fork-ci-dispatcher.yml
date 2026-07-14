@@ -16,12 +16,14 @@ jobs:
   test_workflow_fork_ci:
     runs-on: ubuntu-22.04
     strategy:
+      fail-fast: false
       matrix:
         configurations: [
           { "ref_name": "network-operator-11.1-beta.1", "ref_type": "tag" },
           { "ref_name": "network-operator-22.2-rc.1", "ref_type": "tag" },
           { "ref_name": "network-operator-33.3.1", "ref_type": "tag" },
-          { "ref_name": "network-operator-44.4.x", "ref_type": "branch" }
+          { "ref_name": "network-operator-44.4.x", "ref_type": "branch" },
+          { "ref_name": "network-operator-55.5.x", "ref_type": "branch", "has_release_tag": "true" }
         ]
     concurrency:
       group: ${{ github.workflow }}-${{ matrix.configurations.ref_name }}
