@@ -158,9 +158,9 @@ jobs:
       BUILD_PLATFORMS: linux/amd64,linux/arm64
       DOCKER_REGISTRY: ${{ needs.determine_docker_registry_and_tag.outputs.docker_registry }}
       DOCKER_TAG: ${{ needs.determine_docker_registry_and_tag.outputs.docker_tag }}
-      BASE_IMAGE_DOCA_FULL_RT_HOST: nvcr.io/nvstaging/doca/doca:full-rt-3.5.0091-host-dev
-      BASE_IMAGE_DOCA_BASE_RT_HOST: nvcr.io/nvstaging/doca/doca:base-rt-3.5.0091-host-dev
-      BASE_IMAGE_DOCA_DEVEL_HOST: nvcr.io/nvstaging/doca/doca:devel-3.5.0091-host-dev
+      BASE_IMAGE_DOCA_FULL_RT_HOST: nvcr.io/nvstaging/doca/doca:full-rt-3.5.0092-host-dev
+      BASE_IMAGE_DOCA_BASE_RT_HOST: nvcr.io/nvstaging/doca/doca:base-rt-3.5.0092-host-dev
+      BASE_IMAGE_DOCA_DEVEL_HOST: nvcr.io/nvstaging/doca/doca:devel-3.5.0092-host-dev
       BASE_IMAGE_GO_DISTROLESS_DEV: nvcr.io/nvidia/distroless/go:v4.0.9-dev
       BASE_IMAGE_GO_DISTROLESS: nvcr.io/nvidia/distroless/go:v4.0.9
     strategy:
