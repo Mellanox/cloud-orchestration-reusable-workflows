@@ -1,6 +1,7 @@
 name: Sync Dockerfile image tags to reusable workflow
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
