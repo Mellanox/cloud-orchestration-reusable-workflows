@@ -24,7 +24,7 @@ updates:
       interval: "daily"
     commit-message:
       prefix: "chore:"
-    target-branch: network-operator-26.7.x
+    target-branch: network-operator-26.4.x
   - package-ecosystem: "docker"
     directory: "/"
     registries:
