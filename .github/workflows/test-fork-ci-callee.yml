@@ -11,10 +11,13 @@ on:
       ref_type:
         description: "Type of ref to use (tag or branch)"
         required: true
-      has_release_tag:
-        description: "Whether to add a network-operator-* tag to the branch commit"
+      has_tag:
+        description: "Whether to add a tag to the branch commit"
         required: false
         default: "false"
+      tag_name:
+        description: "Tag name for a tagged branch test (defaults to <ref_name>-tagged)"
+        required: false
       distinct_id:
         description: "Unique identifier for the run"
 
@@ -55,8 +58,8 @@ jobs:
           git commit --allow-empty -m "test: isolate ${{ inputs.ref_name }}"
           git push origin ${{ inputs.ref_name }} -f
           echo BRANCH=${{ inputs.ref_name }} | tee -a $GITHUB_ENV
-          if [ "${{ inputs.has_release_tag }}" = "true" ]; then
-            release_tag="${{ inputs.ref_name }}-tagged"
+          if [ "${{ inputs.has_tag }}" = "true" ]; then
+            release_tag="${{ inputs.tag_name || format('{0}-tagged', inputs.ref_name) }}"
             git tag "$release_tag"
             git push origin "$release_tag" -f
             echo TAG=$release_tag | tee -a $GITHUB_ENV
@@ -89,7 +92,7 @@ jobs:
       cicd-gh-token: ${{ secrets.GH_TOKEN_NVIDIA_CI_CD }}
 
   validate-docker-images-built:
-    if: inputs.ref_type == 'tag' || inputs.has_release_tag != 'true'
+    if: inputs.ref_type == 'tag' || inputs.has_tag != 'true'
     needs: call-reusable-ci-fork-workflow
     runs-on: ubuntu-latest
     env:
@@ -155,7 +158,7 @@ jobs:
           echo "All docker images successfully verified!"
 
   validate-pr-with-updated-version-open:
-    if: inputs.ref_type == 'branch' && inputs.has_release_tag != 'true'
+    if: inputs.ref_type == 'branch' && inputs.has_tag != 'true'
     needs: call-reusable-ci-fork-workflow
     runs-on: ubuntu-latest
     env:
@@ -182,7 +185,7 @@ jobs:
       pr-number: ${{ steps.validate_pr_open.outputs.PR_NUMBER }}
 
   validate-pr-changes:
-    if: inputs.ref_type == 'branch' && inputs.has_release_tag != 'true'
+    if: inputs.ref_type == 'branch' && inputs.has_tag != 'true'
     needs:
       - call-reusable-ci-fork-workflow
       - validate-pr-with-updated-version-open
@@ -231,13 +234,13 @@ jobs:
           fi
 
   validate-no-pr-opened-for-tagged-branch:
-    if: inputs.ref_type == 'branch' && inputs.has_release_tag == 'true'
+    if: inputs.ref_type == 'branch' && inputs.has_tag == 'true'
     needs: call-reusable-ci-fork-workflow
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Validate that no PR was opened for a branch commit that already has a release tag
+      - name: Validate that no PR was opened for a branch commit that already has a tag
         run: |
           OUTPUT=$(gh pr list --repo ${{ github.repository }} --search="state:open in:title ${{ needs.call-reusable-ci-fork-workflow.outputs.docker-tag }}" --json number)
           if [ "$(echo "$OUTPUT" | jq 'length')" -ne 0 ]; then

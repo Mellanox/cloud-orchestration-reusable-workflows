@@ -23,7 +23,8 @@ jobs:
           { "ref_name": "network-operator-22.2-rc.1", "ref_type": "tag" },
           { "ref_name": "network-operator-33.3.1", "ref_type": "tag" },
           { "ref_name": "network-operator-44.4.x", "ref_type": "branch" },
-          { "ref_name": "network-operator-55.5.x", "ref_type": "branch", "has_release_tag": "true" }
+          { "ref_name": "network-operator-55.5.x", "ref_type": "branch", "has_tag": "true" },
+          { "ref_name": "network-operator-66.6.x", "ref_type": "branch", "has_tag": "true", "tag_name": "unrelated-tag-66.6" }
         ]
     concurrency:
       group: ${{ github.workflow }}-${{ matrix.configurations.ref_name }}
