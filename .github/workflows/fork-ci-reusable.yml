@@ -161,8 +161,8 @@ jobs:
       BASE_IMAGE_DOCA_FULL_RT_HOST: nvcr.io/nvstaging/doca/doca:full-rt-3.6.0041-host-dev
       BASE_IMAGE_DOCA_BASE_RT_HOST: nvcr.io/nvstaging/doca/doca:base-rt-3.6.0041-host-dev
       BASE_IMAGE_DOCA_DEVEL_HOST: nvcr.io/nvstaging/doca/doca:devel-3.6.0041-host-dev
-      BASE_IMAGE_GO_DISTROLESS_DEV: artifactory.pdx.nvidia.com/sw-distroless-docker-local/distroless/go:v4.1.4-dev
-      BASE_IMAGE_GO_DISTROLESS: artifactory.pdx.nvidia.com/sw-distroless-docker-local/distroless/go:v4.1.4
+      BASE_IMAGE_GO_DISTROLESS_DEV: nvcr.io/nvstaging/mellanox/go:v4.1.4-dev
+      BASE_IMAGE_GO_DISTROLESS: nvcr.io/nvstaging/mellanox/go:v4.1.4
     strategy:
       matrix:
         component: ${{ fromJSON(inputs.components) }}
