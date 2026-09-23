@@ -101,53 +101,45 @@ jobs:
       docker_registry: ${{ steps.store-docker-registry-and-tag.outputs.DOCKER_REGISTRY }}
       docker_tag: ${{ steps.store-docker-registry-and-tag.outputs.DOCKER_TAG }}
 
-  source_release_tag_guard:
+  source_tag_guard:
     needs:
       - determine_ref
     runs-on: ubuntu-latest
     outputs:
-      has_release_tag: ${{ steps.check-release-tags.outputs.HAS_RELEASE_TAG }}
-      release_tags: ${{ steps.check-release-tags.outputs.RELEASE_TAGS }}
+      has_tag: ${{ steps.check-tags.outputs.HAS_TAG }}
     steps:
       - if: needs.determine_ref.outputs.github_ref_type != 'tag'
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.determine_ref.outputs.github_ref_name }}
           fetch-depth: 0
-      - name: Check whether source commit already has a Network Operator release tag
-        id: check-release-tags
+      - name: Check whether source commit already has a tag
+        id: check-tags
         run: |
           if [ "${{ needs.determine_ref.outputs.github_ref_type }}" = "tag" ]; then
-            echo "Source release tag guard is skipped for tag refs."
-            echo HAS_RELEASE_TAG=false | tee -a "$GITHUB_OUTPUT"
-            echo RELEASE_TAGS= | tee -a "$GITHUB_OUTPUT"
+            echo "Source tag guard is skipped for tag refs."
+            echo HAS_TAG=false | tee -a "$GITHUB_OUTPUT"
             exit 0
           fi
 
           git fetch --force --tags origin
-          release_tags=$(git tag --points-at HEAD --list 'network-operator-*' | sort)
+          commit_tags=$(git tag --points-at HEAD | sort)
 
-          if [ -n "$release_tags" ]; then
-            echo "Source commit already has Network Operator release tag(s):"
-            echo "$release_tags"
-            echo HAS_RELEASE_TAG=true | tee -a "$GITHUB_OUTPUT"
+          if [ -n "$commit_tags" ]; then
+            echo "Source commit already has tag(s):"
+            echo "$commit_tags"
+            echo HAS_TAG=true | tee -a "$GITHUB_OUTPUT"
           else
-            echo "Source commit does not have Network Operator release tags."
-            echo HAS_RELEASE_TAG=false | tee -a "$GITHUB_OUTPUT"
+            echo "Source commit does not have tags."
+            echo HAS_TAG=false | tee -a "$GITHUB_OUTPUT"
           fi
 
-          {
-            echo 'RELEASE_TAGS<<EOF'
-            echo "$release_tags"
-            echo EOF
-          } >> "$GITHUB_OUTPUT"
-
   build_and_push_images:
-    if: needs.determine_ref.outputs.github_ref_type == 'tag' || needs.source_release_tag_guard.outputs.has_release_tag != 'true'
+    if: needs.determine_ref.outputs.github_ref_type == 'tag' || needs.source_tag_guard.outputs.has_tag != 'true'
     needs:
       - determine_ref
       - determine_docker_registry_and_tag
-      - source_release_tag_guard
+      - source_tag_guard
     runs-on: linux-amd64-cpu4
     permissions:
       contents: read
@@ -225,9 +217,9 @@ jobs:
     needs:
       - determine_ref
       - determine_docker_registry_and_tag
-      - source_release_tag_guard
+      - source_tag_guard
       - build_and_push_images
-    if: needs.determine_ref.outputs.github_ref_type == 'branch' && needs.source_release_tag_guard.outputs.has_release_tag != 'true'
+    if: needs.determine_ref.outputs.github_ref_type == 'branch' && needs.source_tag_guard.outputs.has_tag != 'true'
     runs-on: ubuntu-latest
     env:
       GIT_SHA_FULL: ${{ needs.determine_docker_registry_and_tag.outputs.git_sha }}
@@ -339,11 +331,11 @@ jobs:
             --reviewer e0ne --reviewer almaslennikov --reviewer rollandf --reviewer heyvister1
 
   update-issue-status:
-    if: ${{ always() && !(needs.determine_ref.outputs.github_ref_type != 'tag' && needs.source_release_tag_guard.outputs.has_release_tag == 'true') }}
+    if: ${{ always() && !(needs.determine_ref.outputs.github_ref_type != 'tag' && needs.source_tag_guard.outputs.has_tag == 'true') }}
     needs:
       - determine_ref
       - determine_docker_registry_and_tag
-      - source_release_tag_guard
+      - source_tag_guard
       - build_and_push_images
       - update_component_version_in_network_operator
     uses: ./.github/workflows/issue-status-update-reusable.yml
