@@ -5,10 +5,6 @@ name: Reusable Go Check
 on:
   workflow_call:
     inputs:
-      go-version:
-        description: Go version passed to actions/setup-go
-        type: string
-        required: true
       command:
         description: Repository-owned shell commands to run
         type: string
@@ -51,7 +47,7 @@ jobs:
           fetch-depth: ${{ inputs.fetch-depth }}
       - uses: actions/setup-go@v7
         with:
-          go-version: ${{ inputs.go-version }}
+          go-version: '1.27.x'
       - name: Install OS prerequisites
         if: inputs.apt-packages != ''
         env:

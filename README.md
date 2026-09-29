@@ -77,7 +77,7 @@ The repo has a dummy `master` branch which is a copy of the corresponding branch
 `go-ci-reusable.yml` runs a required build followed by independent lint, test,
 and validation jobs. Each job checks out the caller repository and uses
 `go-check-reusable.yml` for Go setup, prerequisites, command execution, and optional
-Coveralls upload. Go versions remain caller-selected. Commands run with Bash
+Coveralls upload. Go 1.27.x is selected centrally in `go-check-reusable.yml`. Callers do not specify a Go version. Commands run with Bash
 `errexit` and `pipefail`; repository Makefiles/Taskfiles own their tool versions,
 envtest setup, generation, and package selection.
 
@@ -90,7 +90,6 @@ jobs:
   ci:
     uses: Mellanox/cloud-orchestration-reusable-workflows/.github/workflows/go-ci-reusable.yml@main
     with:
-      go-version: '1.27.x'
       test-command: make unit-test
       coverage-file: cover.out
       validate-command: |
@@ -108,7 +107,7 @@ Both Go workflows accept `runner` (default `ubuntu-latest`), `apt-packages`
 (space-separated names), `task-version` (empty skips Task installation),
 `fetch-depth` (default 1), and `timeout-minutes` (default 30, per job). Go CI
 applies these to all its jobs. For job-specific prerequisites or a different
-job graph, call `go-check-reusable.yml` directly with `go-version` and `command`.
+job graph, call `go-check-reusable.yml` directly with `command`.
 Commands are executable caller configuration and must not incorporate untrusted
 PR titles, branch names, or other event text.
 
