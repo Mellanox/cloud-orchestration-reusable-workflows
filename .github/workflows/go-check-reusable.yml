@@ -16,10 +16,10 @@ on:
         description: Space-separated Ubuntu package names
         type: string
         default: ''
-      task-version:
-        description: Install Task when nonempty
-        type: string
-        default: ''
+      install-task:
+        description: Install the centrally selected Task version
+        type: boolean
+        default: false
       coverage-file:
         type: string
         default: ''
@@ -58,9 +58,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y -- "${packages[@]}"
       - uses: arduino/setup-task@v3
-        if: inputs.task-version != ''
+        if: inputs.install-task
         with:
-          version: ${{ inputs.task-version }}
+          version: '3.x'
           repo-token: ${{ github.token }}
       - name: Run check
         env:

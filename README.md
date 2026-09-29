@@ -77,7 +77,8 @@ The repo has a dummy `master` branch which is a copy of the corresponding branch
 `go-ci-reusable.yml` runs a required build followed by independent lint, test,
 and validation jobs. Each job checks out the caller repository and uses
 `go-check-reusable.yml` for Go setup, prerequisites, command execution, and optional
-Coveralls upload. Go 1.27.x is selected centrally in `go-check-reusable.yml`. Callers do not specify a Go version. Commands run with Bash
+Coveralls upload. Go 1.27.x and Task 3.x are selected centrally in `go-check-reusable.yml`.
+Callers do not supply tool-version inputs. Commands run with Bash
 `errexit` and `pipefail`; repository Makefiles/Taskfiles own their tool versions,
 envtest setup, generation, and package selection.
 
@@ -104,7 +105,7 @@ is `golang` (default) or `lcov`; a missing/empty file or unsupported format fail
 Uploads use the caller's automatic `GITHUB_TOKEN`; no inherited secrets are needed.
 
 Both Go workflows accept `runner` (default `ubuntu-latest`), `apt-packages`
-(space-separated names), `task-version` (empty skips Task installation),
+(space-separated names), `install-task` (boolean, default false),
 `fetch-depth` (default 1), and `timeout-minutes` (default 30, per job). Go CI
 applies these to all its jobs. For job-specific prerequisites or a different
 job graph, call `go-check-reusable.yml` directly with `command`.

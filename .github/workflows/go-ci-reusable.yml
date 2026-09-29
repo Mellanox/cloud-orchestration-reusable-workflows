@@ -26,9 +26,10 @@ on:
       apt-packages:
         type: string
         default: ''
-      task-version:
-        type: string
-        default: ''
+      install-task:
+        description: Install the centrally selected Task version
+        type: boolean
+        default: false
       coverage-file:
         description: Coverage produced by test-command; empty disables upload
         type: string
@@ -53,7 +54,7 @@ jobs:
       command: ${{ inputs.build-command }}
       runner: ${{ inputs.runner }}
       apt-packages: ${{ inputs.apt-packages }}
-      task-version: ${{ inputs.task-version }}
+      install-task: ${{ inputs.install-task }}
       fetch-depth: ${{ inputs.fetch-depth }}
       timeout-minutes: ${{ inputs.timeout-minutes }}
   lint:
@@ -64,7 +65,7 @@ jobs:
       command: ${{ inputs.lint-command }}
       runner: ${{ inputs.runner }}
       apt-packages: ${{ inputs.apt-packages }}
-      task-version: ${{ inputs.task-version }}
+      install-task: ${{ inputs.install-task }}
       fetch-depth: ${{ inputs.fetch-depth }}
       timeout-minutes: ${{ inputs.timeout-minutes }}
   test:
@@ -75,7 +76,7 @@ jobs:
       command: ${{ inputs.test-command }}
       runner: ${{ inputs.runner }}
       apt-packages: ${{ inputs.apt-packages }}
-      task-version: ${{ inputs.task-version }}
+      install-task: ${{ inputs.install-task }}
       fetch-depth: ${{ inputs.fetch-depth }}
       timeout-minutes: ${{ inputs.timeout-minutes }}
       coverage-file: ${{ inputs.coverage-file }}
@@ -88,6 +89,6 @@ jobs:
       command: ${{ inputs.validate-command }}
       runner: ${{ inputs.runner }}
       apt-packages: ${{ inputs.apt-packages }}
-      task-version: ${{ inputs.task-version }}
+      install-task: ${{ inputs.install-task }}
       fetch-depth: ${{ inputs.fetch-depth }}
       timeout-minutes: ${{ inputs.timeout-minutes }}
