@@ -71,3 +71,78 @@ The reusable workflow uses the caller's `GITHUB_TOKEN` by default. Callers can p
 ### Fork CI tests:
 These tests use the `cloud-orchestration-reusable-workflows` repo as a sandbox and create test branches / tags / PRs, and are [synchronized](https://github.com/Mellanox/cloud-orchestration-reusable-workflows/blob/main/.github/workflows/test-fork-ci-dispatcher.yml#L26) to avoid race conditions.
 The repo has a dummy `master` branch which is a copy of the corresponding branch of the [Network Operator's repo](https://github.com/Mellanox/network-operator). This is done to avoid testing clutter in the main repo. If needed, the branch can be updated.
+
+## Component build and test workflows
+
+`go-ci-reusable.yml` runs a required build followed by independent lint, test,
+and validation jobs. Each job checks out the caller repository and uses
+`go-check-reusable.yml` for Go setup, prerequisites, command execution, and optional
+Coveralls upload. Go versions remain caller-selected. Commands run with Bash
+`errexit` and `pipefail`; repository Makefiles/Taskfiles own their tool versions,
+envtest setup, generation, and package selection.
+
+```yaml
+name: Build, Test, Lint
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  ci:
+    uses: Mellanox/cloud-orchestration-reusable-workflows/.github/workflows/go-ci-reusable.yml@main
+    with:
+      go-version: 1.27.1
+      test-command: make unit-test
+      coverage-file: cover.out
+      validate-command: |
+        go mod tidy
+        git diff --exit-code
+```
+
+The default build and lint commands are `make build` and `make lint`. Empty lint,
+test, or validation commands skip that job. `coverage-file` names an output of
+`test-command`, so tests need not run again to upload coverage. `coverage-format`
+is `golang` (default) or `lcov`; a missing/empty file or unsupported format fails.
+Uploads use the caller's automatic `GITHUB_TOKEN`; no inherited secrets are needed.
+
+Both Go workflows accept `runner` (default `ubuntu-latest`), `apt-packages`
+(space-separated names), `task-version` (empty skips Task installation),
+`fetch-depth` (default 1), and `timeout-minutes` (default 30, per job). Go CI
+applies these to all its jobs. For job-specific prerequisites or a different
+job graph, call `go-check-reusable.yml` directly with `go-version` and `command`.
+Commands are executable caller configuration and must not incorporate untrusted
+PR titles, branch names, or other event text.
+
+`image-build-reusable.yml` verifies images with Buildx and never pushes or logs
+into a registry. It accepts `dockerfile`, `context`, `platforms` (default
+`linux/amd64`), newline-separated `build-args`, `runner`, and `timeout-minutes`.
+It checks out full history for build-time version calculation. Makefile-specific
+image flags must be supplied explicitly through these inputs. Release image
+publication continues to use its existing workflows.
+
+`codeql-reusable.yml` accepts `language` (default `go`), `queries` (default
+`+security-and-quality`), `runner`, `timeout-minutes`, and `build-command`.
+An empty build command uses CodeQL autobuild. The calling job must grant
+`actions: read`, `contents: read`, and `security-events: write`. Triggers,
+branch filters, schedules, and language matrices remain with the caller.
+
+### Migration and validation
+
+Merge the shared workflows before callers reference them on `main`. To exercise
+consumer PRs before that merge, temporarily point their reusable calls at the
+published candidate commit. Nested Go checks use a relative workflow reference,
+so they resolve from the same commit as the Go CI workflow.
+
+The init-container pilot maps build/lint/test/go-check to Go CI and build-image
+to the image workflow. Spectrum-X uses the same Go CI workflow, adding its
+existing `make generate` and `make manifests` validation. Both upload the
+coverage from their existing `make unit-test` invocation and use shared CodeQL.
+Their license workflows are already reusable.
+
+Check required status contexts when migrating: the new caller and nested job
+names replace the previous standalone checks, and the separate coverage job is
+removed. Preserve caller triggers and test coverage, and verify hosted PR runs
+(including Coveralls and CodeQL) before changing required checks.
+
+`test-component-ci.yml` exercises the Go workflow with real build/test/validation
+commands and verifies the image workflow without publishing. Run actionlint on
+new shared workflows and consumer callers before submitting changes.
