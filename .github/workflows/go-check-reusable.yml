@@ -87,10 +87,14 @@ jobs:
         uses: coverallsapp/github-action@v2
         with:
           github-token: ${{ github.token }}
+          # Retries must not append to a Coveralls build closed by an earlier attempt.
+          build-number: ${{ github.run_id }}-${{ github.run_attempt }}
           file: ${{ inputs.coverage-file }}
       - name: Upload LCOV coverage
         if: inputs.coverage-file != '' && inputs.coverage-format == 'lcov'
         uses: coverallsapp/github-action@v2
         with:
           github-token: ${{ github.token }}
+          # Retries must not append to a Coveralls build closed by an earlier attempt.
+          build-number: ${{ github.run_id }}-${{ github.run_attempt }}
           path-to-lcov: ${{ inputs.coverage-file }}
