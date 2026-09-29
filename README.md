@@ -77,10 +77,19 @@ The repo has a dummy `master` branch which is a copy of the corresponding branch
 `go-ci-reusable.yml` runs a required build followed by independent lint, test,
 and validation jobs. Each job checks out the caller repository and uses
 `go-check-reusable.yml` for Go setup, prerequisites, command execution, and optional
-Coveralls upload. Go 1.27.x and Task 3.x are selected centrally in `go-check-reusable.yml`.
+Coveralls upload. Go 1.27.x, Task 3.x, and golangci-lint v2.14.0 are selected
+centrally in `go-check-reusable.yml`.
 Callers do not supply tool-version inputs. Commands run with Bash
-`errexit` and `pipefail`; repository Makefiles/Taskfiles own their tool versions,
-envtest setup, generation, and package selection.
+`errexit` and `pipefail`; repository Makefiles/Taskfiles own envtest setup,
+generation, and package selection.
+
+The workflow exports `GOLANGCILINT_VERSION`. Make-based consumers must honor it
+with a conditional assignment (`GOLANGCILINT_VERSION ?= ...`) and include the
+version in their installed binary path. This lets local builds keep a fallback
+while CI follows the central version. Consumers using a different variable name
+or a Taskfile must adapt their linter installation to honor this variable; the
+workflow does not override arbitrary repository commands. Tool installation must
+also inherit the selected Go toolchain rather than forcing the go.mod minimum.
 
 ```yaml
 name: Build, Test, Lint

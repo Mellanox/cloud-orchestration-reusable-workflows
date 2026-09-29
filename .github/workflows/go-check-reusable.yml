@@ -41,6 +41,9 @@ jobs:
   check:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
+    env:
+      # Repository Makefiles must use ?= so this CI policy takes precedence.
+      GOLANGCILINT_VERSION: v2.14.0
     steps:
       - uses: actions/checkout@v7
         with:
