@@ -5,10 +5,6 @@ name: Reusable Go CI
 on:
   workflow_call:
     inputs:
-      go-version:
-        description: Go version selected by the caller
-        type: string
-        required: true
       build-command:
         type: string
         default: make build
@@ -30,9 +26,10 @@ on:
       apt-packages:
         type: string
         default: ''
-      task-version:
-        type: string
-        default: ''
+      install-task:
+        description: Install the centrally selected Task version
+        type: boolean
+        default: false
       coverage-file:
         description: Coverage produced by test-command; empty disables upload
         type: string
@@ -55,10 +52,9 @@ jobs:
     uses: ./.github/workflows/go-check-reusable.yml
     with:
       command: ${{ inputs.build-command }}
-      go-version: ${{ inputs.go-version }}
       runner: ${{ inputs.runner }}
       apt-packages: ${{ inputs.apt-packages }}
-      task-version: ${{ inputs.task-version }}
+      install-task: ${{ inputs.install-task }}
       fetch-depth: ${{ inputs.fetch-depth }}
       timeout-minutes: ${{ inputs.timeout-minutes }}
   lint:
@@ -67,10 +63,9 @@ jobs:
     uses: ./.github/workflows/go-check-reusable.yml
     with:
       command: ${{ inputs.lint-command }}
-      go-version: ${{ inputs.go-version }}
       runner: ${{ inputs.runner }}
       apt-packages: ${{ inputs.apt-packages }}
-      task-version: ${{ inputs.task-version }}
+      install-task: ${{ inputs.install-task }}
       fetch-depth: ${{ inputs.fetch-depth }}
       timeout-minutes: ${{ inputs.timeout-minutes }}
   test:
@@ -79,10 +74,9 @@ jobs:
     uses: ./.github/workflows/go-check-reusable.yml
     with:
       command: ${{ inputs.test-command }}
-      go-version: ${{ inputs.go-version }}
       runner: ${{ inputs.runner }}
       apt-packages: ${{ inputs.apt-packages }}
-      task-version: ${{ inputs.task-version }}
+      install-task: ${{ inputs.install-task }}
       fetch-depth: ${{ inputs.fetch-depth }}
       timeout-minutes: ${{ inputs.timeout-minutes }}
       coverage-file: ${{ inputs.coverage-file }}
@@ -93,9 +87,8 @@ jobs:
     uses: ./.github/workflows/go-check-reusable.yml
     with:
       command: ${{ inputs.validate-command }}
-      go-version: ${{ inputs.go-version }}
       runner: ${{ inputs.runner }}
       apt-packages: ${{ inputs.apt-packages }}
-      task-version: ${{ inputs.task-version }}
+      install-task: ${{ inputs.install-task }}
       fetch-depth: ${{ inputs.fetch-depth }}
       timeout-minutes: ${{ inputs.timeout-minutes }}
