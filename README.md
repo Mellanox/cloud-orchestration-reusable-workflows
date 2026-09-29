@@ -90,7 +90,7 @@ jobs:
   ci:
     uses: Mellanox/cloud-orchestration-reusable-workflows/.github/workflows/go-ci-reusable.yml@main
     with:
-      go-version: 1.27.1
+      go-version: '1.27.x'
       test-command: make unit-test
       coverage-file: cover.out
       validate-command: |
