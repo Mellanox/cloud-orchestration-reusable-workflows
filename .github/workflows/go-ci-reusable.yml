@@ -1,0 +1,101 @@
+# Copyright 2026 NVIDIA CORPORATION & AFFILIATES
+# SPDX-License-Identifier: Apache-2.0
+
+name: Reusable Go CI
+on:
+  workflow_call:
+    inputs:
+      go-version:
+        description: Go version selected by the caller
+        type: string
+        required: true
+      build-command:
+        type: string
+        default: make build
+      lint-command:
+        description: Empty disables lint
+        type: string
+        default: make lint
+      test-command:
+        description: Empty disables tests
+        type: string
+        default: make unit-test
+      validate-command:
+        description: Empty disables validation
+        type: string
+        default: ''
+      runner:
+        type: string
+        default: ubuntu-latest
+      apt-packages:
+        type: string
+        default: ''
+      task-version:
+        type: string
+        default: ''
+      coverage-file:
+        description: Coverage produced by test-command; empty disables upload
+        type: string
+        default: ''
+      coverage-format:
+        type: string
+        default: golang
+      fetch-depth:
+        type: number
+        default: 1
+      timeout-minutes:
+        type: number
+        default: 30
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: ./.github/workflows/go-check-reusable.yml
+    with:
+      command: ${{ inputs.build-command }}
+      go-version: ${{ inputs.go-version }}
+      runner: ${{ inputs.runner }}
+      apt-packages: ${{ inputs.apt-packages }}
+      task-version: ${{ inputs.task-version }}
+      fetch-depth: ${{ inputs.fetch-depth }}
+      timeout-minutes: ${{ inputs.timeout-minutes }}
+  lint:
+    needs: build
+    if: inputs.lint-command != ''
+    uses: ./.github/workflows/go-check-reusable.yml
+    with:
+      command: ${{ inputs.lint-command }}
+      go-version: ${{ inputs.go-version }}
+      runner: ${{ inputs.runner }}
+      apt-packages: ${{ inputs.apt-packages }}
+      task-version: ${{ inputs.task-version }}
+      fetch-depth: ${{ inputs.fetch-depth }}
+      timeout-minutes: ${{ inputs.timeout-minutes }}
+  test:
+    needs: build
+    if: inputs.test-command != ''
+    uses: ./.github/workflows/go-check-reusable.yml
+    with:
+      command: ${{ inputs.test-command }}
+      go-version: ${{ inputs.go-version }}
+      runner: ${{ inputs.runner }}
+      apt-packages: ${{ inputs.apt-packages }}
+      task-version: ${{ inputs.task-version }}
+      fetch-depth: ${{ inputs.fetch-depth }}
+      timeout-minutes: ${{ inputs.timeout-minutes }}
+      coverage-file: ${{ inputs.coverage-file }}
+      coverage-format: ${{ inputs.coverage-format }}
+  validate:
+    needs: build
+    if: inputs.validate-command != ''
+    uses: ./.github/workflows/go-check-reusable.yml
+    with:
+      command: ${{ inputs.validate-command }}
+      go-version: ${{ inputs.go-version }}
+      runner: ${{ inputs.runner }}
+      apt-packages: ${{ inputs.apt-packages }}
+      task-version: ${{ inputs.task-version }}
+      fetch-depth: ${{ inputs.fetch-depth }}
+      timeout-minutes: ${{ inputs.timeout-minutes }}

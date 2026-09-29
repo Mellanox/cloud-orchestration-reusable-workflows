@@ -1,0 +1,97 @@
+# Copyright 2026 NVIDIA CORPORATION & AFFILIATES
+# SPDX-License-Identifier: Apache-2.0
+
+name: Reusable Go Check
+on:
+  workflow_call:
+    inputs:
+      go-version:
+        description: Go version passed to actions/setup-go
+        type: string
+        required: true
+      command:
+        description: Repository-owned shell commands to run
+        type: string
+        required: true
+      runner:
+        type: string
+        default: ubuntu-latest
+      apt-packages:
+        description: Space-separated Ubuntu package names
+        type: string
+        default: ''
+      task-version:
+        description: Install Task when nonempty
+        type: string
+        default: ''
+      coverage-file:
+        type: string
+        default: ''
+      coverage-format:
+        description: golang or lcov
+        type: string
+        default: golang
+      fetch-depth:
+        type: number
+        default: 1
+      timeout-minutes:
+        type: number
+        default: 30
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: ${{ inputs.fetch-depth }}
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ inputs.go-version }}
+      - name: Install OS prerequisites
+        if: inputs.apt-packages != ''
+        env:
+          PACKAGES: ${{ inputs.apt-packages }}
+        shell: bash
+        run: |
+          read -r -a packages <<< "$PACKAGES"
+          sudo apt-get update
+          sudo apt-get install -y -- "${packages[@]}"
+      - uses: arduino/setup-task@v3
+        if: inputs.task-version != ''
+        with:
+          version: ${{ inputs.task-version }}
+          repo-token: ${{ github.token }}
+      - name: Run check
+        env:
+          CHECK_COMMAND: ${{ inputs.command }}
+        shell: bash
+        run: bash --noprofile --norc -e -o pipefail -c "$CHECK_COMMAND"
+      - name: Validate coverage output
+        if: inputs.coverage-file != ''
+        env:
+          COVERAGE_FILE: ${{ inputs.coverage-file }}
+          COVERAGE_FORMAT: ${{ inputs.coverage-format }}
+        shell: bash
+        run: |
+          case "$COVERAGE_FORMAT" in
+            golang|lcov) ;;
+            *) echo "::error::Unsupported coverage format: $COVERAGE_FORMAT"; exit 1 ;;
+          esac
+          test -s "$COVERAGE_FILE"
+      - name: Upload Go coverage
+        if: inputs.coverage-file != '' && inputs.coverage-format == 'golang'
+        uses: coverallsapp/github-action@v2
+        with:
+          github-token: ${{ github.token }}
+          file: ${{ inputs.coverage-file }}
+      - name: Upload LCOV coverage
+        if: inputs.coverage-file != '' && inputs.coverage-format == 'lcov'
+        uses: coverallsapp/github-action@v2
+        with:
+          github-token: ${{ github.token }}
+          path-to-lcov: ${{ inputs.coverage-file }}
