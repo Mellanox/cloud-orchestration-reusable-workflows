@@ -176,3 +176,8 @@ For manual or external CI builds, retrieve the builder URL from this repository'
 root Dockerfile at the desired policy ref and supply
 `--build-arg BASE_IMAGE_GO_BUILDER=<url>` (or the Alpine argument).
 Never use the distroless runtime image as a compiler image.
+
+NIC Configuration Operator and Spectrum-X GitLab STIG pipelines resolve
+`BASE_IMAGE_GO_BUILDER` from the published resolver YAML once per pipeline,
+then pass it to all image jobs through a dotenv artifact. This keeps GitHub
+and GitLab builds on the same selection after the synchronization PR merges.
