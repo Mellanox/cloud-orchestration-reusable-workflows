@@ -63,6 +63,9 @@ on:
         value: ${{ jobs.determine_docker_registry_and_tag.outputs.docker_tag }}
 
 jobs:
+  go-builder-images:
+    uses: ./.github/workflows/go-builder-images-reusable.yml
+
   determine_ref:
     runs-on: ubuntu-latest
     steps:
@@ -145,6 +148,7 @@ jobs:
   build_and_push_images:
     if: needs.determine_ref.outputs.github_ref_type == 'tag' || needs.source_release_tag_guard.outputs.has_release_tag != 'true'
     needs:
+      - go-builder-images
       - determine_ref
       - determine_docker_registry_and_tag
       - source_release_tag_guard
@@ -214,6 +218,8 @@ jobs:
           tags: ${{ env.DOCKER_REGISTRY }}/${{ matrix.component.imageName }}:${{ env.DOCKER_TAG }}
           push: true
           build-args: |
+            BASE_IMAGE_GO_BUILDER=${{ needs.go-builder-images.outputs.standard }}
+            BASE_IMAGE_GO_BUILDER_ALPINE=${{ needs.go-builder-images.outputs.alpine }}
             GOPROXY=${{ env.GOPROXY }}
             BASE_IMAGE_DOCA_FULL_RT_HOST=${{ env.BASE_IMAGE_DOCA_FULL_RT_HOST }}
             BASE_IMAGE_DOCA_BASE_RT_HOST=${{ env.BASE_IMAGE_DOCA_BASE_RT_HOST }}
