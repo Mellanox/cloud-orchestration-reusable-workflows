@@ -29,11 +29,7 @@ permissions:
   contents: read
 
 jobs:
-  go-builder-images:
-    uses: ./.github/workflows/go-builder-images-reusable.yml
-
   build:
-    needs: go-builder-images
     runs-on: ${{ inputs.runner }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
     steps:
@@ -48,8 +44,5 @@ jobs:
           context: ${{ inputs.context }}
           file: ${{ inputs.dockerfile }}
           platforms: ${{ inputs.platforms }}
-          build-args: |
-            ${{ inputs.build-args }}
-            BASE_IMAGE_GO_BUILDER=${{ needs.go-builder-images.outputs.standard }}
-            BASE_IMAGE_GO_BUILDER_ALPINE=${{ needs.go-builder-images.outputs.alpine }}
+          build-args: ${{ inputs.build-args }}
           push: false

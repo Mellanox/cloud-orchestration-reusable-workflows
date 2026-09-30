@@ -156,28 +156,11 @@ removed. Preserve caller triggers and test coverage, and verify hosted PR runs
 commands and verifies the image workflow without publishing. Run actionlint on
 new shared workflows and consumer callers before submitting changes.
 
-## Central Go builder images
+## Go builder images
 
-The root `Dockerfile` is the Dependabot source for `BASE_IMAGE_GO_BUILDER`
-(Debian) and `BASE_IMAGE_GO_BUILDER_ALPINE` (Alpine). Existing daily Docker
-updates propose new tags. After merge, `sync-dockerfile-images.yml` opens a
-follow-up PR updating `go-builder-images-reusable.yml`; merge that PR to roll
-out the selected images. Release branches retain their own policy.
-
-`fork-ci-reusable.yml` and `image-build-reusable.yml` inject both build arguments.
-They call the resolver with a relative workflow reference, so the images come
-from the same reusable-workflow revision. Other image publishing workflows
-should call `go-builder-images-reusable.yml` and pass its `standard` and `alpine`
-outputs to the matching Docker build arguments. Callers do not specify versions.
-
-Components keep their existing standalone Dockerfile defaults as fallbacks;
-managed CI overrides them. Downstream forks change only NVIDIA-owned Dockerfiles.
-For manual or external CI builds, retrieve the builder URL from this repository's
-root Dockerfile at the desired policy ref and supply
-`--build-arg BASE_IMAGE_GO_BUILDER=<url>` (or the Alpine argument).
-Never use the distroless runtime image as a compiler image.
-
-NIC Configuration Operator and Spectrum-X GitLab STIG pipelines resolve
-`BASE_IMAGE_GO_BUILDER` from the published resolver YAML once per pipeline,
-then pass it to all image jobs through a dotenv artifact. This keeps GitHub
-and GitLab builds on the same selection after the synchronization PR merges.
+The root dummy `Dockerfile` tracks standard and Alpine Go builder images with
+Dependabot. The existing `sync-dockerfile-images.yml` job copies their tags to
+`BASE_IMAGE_GO_BUILDER` and `BASE_IMAGE_GO_BUILDER_ALPINE` in
+`fork-ci-reusable.yml`, alongside the DOCA and distroless images. Fork CI passes
+these values as Docker build arguments. Component Dockerfiles accept the
+matching argument and retain a fallback for standalone builds.
