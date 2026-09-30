@@ -155,3 +155,12 @@ removed. Preserve caller triggers and test coverage, and verify hosted PR runs
 `test-component-ci.yml` exercises the Go workflow with real build/test/validation
 commands and verifies the image workflow without publishing. Run actionlint on
 new shared workflows and consumer callers before submitting changes.
+
+## Go builder images
+
+The root dummy `Dockerfile` tracks standard and Alpine Go builder images with
+Dependabot. The existing `sync-dockerfile-images.yml` job copies their tags to
+`BASE_IMAGE_GO_BUILDER` and `BASE_IMAGE_GO_BUILDER_ALPINE` in
+`fork-ci-reusable.yml`, alongside the DOCA and distroless images. Fork CI passes
+these values as Docker build arguments. Component Dockerfiles accept the
+matching argument and retain a fallback for standalone builds.
