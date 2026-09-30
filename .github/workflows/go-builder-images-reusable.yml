@@ -1,0 +1,33 @@
+# Copyright 2026 NVIDIA CORPORATION & AFFILIATES
+# SPDX-License-Identifier: Apache-2.0
+
+name: Reusable Go Builder Images
+on:
+  workflow_call:
+    outputs:
+      standard:
+        description: Debian-based Go builder image
+        value: ${{ jobs.images.outputs.standard }}
+      alpine:
+        description: Alpine-based Go builder image
+        value: ${{ jobs.images.outputs.alpine }}
+
+permissions:
+  contents: read
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    env:
+      # Synchronized from the Dependabot-managed root Dockerfile.
+      BASE_IMAGE_GO_BUILDER: golang:1.27.1-bookworm
+      BASE_IMAGE_GO_BUILDER_ALPINE: golang:1.27.1-alpine
+    outputs:
+      standard: ${{ steps.images.outputs.standard }}
+      alpine: ${{ steps.images.outputs.alpine }}
+    steps:
+      - id: images
+        shell: bash
+        run: |
+          echo "standard=$BASE_IMAGE_GO_BUILDER" >> "$GITHUB_OUTPUT"
+          echo "alpine=$BASE_IMAGE_GO_BUILDER_ALPINE" >> "$GITHUB_OUTPUT"

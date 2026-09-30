@@ -6,6 +6,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/go-*-reusable.yml'
+      - 'Dockerfile'
       - '.github/workflows/image-build-reusable.yml'
       - '.github/workflows/test-component-ci.yml'
       - 'tests/component-ci/**'
