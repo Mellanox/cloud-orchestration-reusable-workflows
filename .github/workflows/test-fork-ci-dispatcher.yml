@@ -8,6 +8,8 @@ on:
       - '.github/workflows/fork-ci-reusable.yml'
       - '.github/workflows/test-fork-ci-dispatcher.yml'
       - '.github/workflows/test-fork-ci-callee.yml'
+      - 'Dockerfile.test'
+      - 'Dockerfile.another-test'
   push:
     branches:
       - main

@@ -76,7 +76,7 @@ jobs:
       registry-internal: ghcr.io/mellanox
       service-account-username: nvidia-ci-cd
       service-account-email: svc-cloud-orch-gh@nvidia.com
-      components: '[{"name": "nicConfigurationOperator", "imageName": "cloud-orchestration-reusable-workflows", "dockerfile": "Dockerfile.test"}, {"name": "nicConfigurationConfigDaemon", "imageName": "another-cloud-orchestration-reusable-workflows", "dockerfile": "Dockerfile.another-test"}]'
+      components: '[{"name": "nicConfigurationOperator", "imageName": "cloud-orchestration-reusable-workflows", "dockerfile": "Dockerfile.test", "buildArgs": "TEST_BUILD_ARGUMENT=component-override\nBASE_IMAGE_GO_BUILDER=golang:1.26.9-bookworm"}, {"name": "nicConfigurationConfigDaemon", "imageName": "another-cloud-orchestration-reusable-workflows", "dockerfile": "Dockerfile.another-test"}]'
       chart-name: node-feature-discovery
       chart-path: "charts-to-test/node-feature-discovery"
       exclude-chart-files: '["Chart.yaml", "new-file-to-exclude"]'
@@ -151,6 +151,17 @@ jobs:
 
             echo "Successfully verified image $image with platforms: $PLATFORMS"
           done
+
+          # Per-component arguments override standard arguments for the first image.
+          first_image="$DOCKER_REGISTRY/cloud-orchestration-reusable-workflows:$DOCKER_TAG"
+          second_image="$DOCKER_REGISTRY/another-cloud-orchestration-reusable-workflows:$DOCKER_TAG"
+          actual=$(docker run --rm --platform=linux/amd64 --entrypoint cat "$first_image" /test-build-argument)
+          test "$actual" = "component-override"
+          actual=$(docker run --rm --platform=linux/amd64 --entrypoint cat "$first_image" /test-go-builder)
+          test "$actual" = "golang:1.26.9-bookworm"
+          # A component without buildArgs retains its Dockerfile default.
+          actual=$(docker run --rm --platform=linux/amd64 --entrypoint cat "$second_image" /test-build-argument)
+          test "$actual" = "default"
 
           echo "All docker images successfully verified!"
 

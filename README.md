@@ -164,3 +164,20 @@ Dependabot. The existing `sync-dockerfile-images.yml` job copies their tags to
 `fork-ci-reusable.yml`, alongside the DOCA and distroless images. Fork CI passes
 these values as Docker build arguments. Component Dockerfiles accept the
 matching argument and retain a fallback for standalone builds.
+
+### Per-component Docker build arguments
+
+A `components` entry can include an optional `buildArgs` string with
+newline-separated Docker build arguments. These are appended after the standard
+arguments, so a component can override the DOCA or Go builder image without
+changing defaults for other callers. For example:
+
+```yaml
+components: >-
+  [{"name":"nicConfigurationConfigDaemon",
+    "imageName":"nic-configuration-operator-daemon",
+    "dockerfile":"Dockerfile.nic-configuration-daemon",
+    "buildArgs":"BASE_IMAGE_DOCA_FULL_RT_HOST=nvcr.io/nvstaging/doca/doca:full-rt-3.5.0-host-dev\nBASE_IMAGE_GO_BUILDER=golang:1.26.9-bookworm"}]
+```
+
+Components that omit `buildArgs` retain the standard build arguments.
