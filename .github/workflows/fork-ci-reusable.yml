@@ -163,8 +163,8 @@ jobs:
       BASE_IMAGE_DOCA_DEVEL_HOST: nvcr.io/nvstaging/doca/doca:devel-3.6.0-host-dev
       BASE_IMAGE_GO_BUILDER: golang:1.27.2-bookworm
       BASE_IMAGE_GO_BUILDER_ALPINE: golang:1.27.2-alpine
-      BASE_IMAGE_GO_DISTROLESS_DEV: nvcr.io/nvidia/distroless/go:v4.1.7-dev
-      BASE_IMAGE_GO_DISTROLESS: nvcr.io/nvidia/distroless/go:v4.1.7
+      BASE_IMAGE_GO_DISTROLESS_DEV: nvcr.io/nvidia/distroless/go:v4.1.8-dev
+      BASE_IMAGE_GO_DISTROLESS: nvcr.io/nvidia/distroless/go:v4.1.8
     strategy:
       matrix:
         component: ${{ fromJSON(inputs.components) }}
