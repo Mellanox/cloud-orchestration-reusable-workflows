@@ -4,5 +4,5 @@ FROM nvcr.io/nvstaging/doca/doca:base-rt-4.0.0031-host-dev AS BASE_IMAGE_DOCA_BA
 FROM nvcr.io/nvstaging/doca/doca:devel-4.0.0031-host-dev AS BASE_IMAGE_DOCA_DEVEL_HOST
 FROM nvcr.io/nvidia/distroless/go:v4.2.2-dev AS BASE_IMAGE_GO_DISTROLESS_DEV
 FROM nvcr.io/nvidia/distroless/go:v4.2.2 AS BASE_IMAGE_GO_DISTROLESS
-FROM golang:1.27.2-bookworm AS BASE_IMAGE_GO_BUILDER
-FROM golang:1.27.2-alpine AS BASE_IMAGE_GO_BUILDER_ALPINE
+FROM golang:1.27.4-bookworm AS BASE_IMAGE_GO_BUILDER
+FROM golang:1.27.4-alpine AS BASE_IMAGE_GO_BUILDER_ALPINE
