@@ -1,7 +1,7 @@
 # This is a dummy Dockerfile for getting dependabot PRs for version updates
-FROM nvcr.io/nvstaging/doca/doca:full-rt-4.0.0031-host-dev AS BASE_IMAGE_DOCA_FULL_RT_HOST
-FROM nvcr.io/nvstaging/doca/doca:base-rt-4.0.0031-host-dev AS BASE_IMAGE_DOCA_BASE_RT_HOST
-FROM nvcr.io/nvstaging/doca/doca:devel-4.0.0031-host-dev AS BASE_IMAGE_DOCA_DEVEL_HOST
+FROM nvcr.io/nvstaging/doca/doca:full-rt-4.0.0032-host-dev AS BASE_IMAGE_DOCA_FULL_RT_HOST
+FROM nvcr.io/nvstaging/doca/doca:base-rt-4.0.0032-host-dev AS BASE_IMAGE_DOCA_BASE_RT_HOST
+FROM nvcr.io/nvstaging/doca/doca:devel-4.0.0032-host-dev AS BASE_IMAGE_DOCA_DEVEL_HOST
 FROM nvcr.io/nvidia/distroless/go:v4.2.3-dev AS BASE_IMAGE_GO_DISTROLESS_DEV
 FROM nvcr.io/nvidia/distroless/go:v4.2.3 AS BASE_IMAGE_GO_DISTROLESS
 FROM golang:1.27.4-bookworm AS BASE_IMAGE_GO_BUILDER
